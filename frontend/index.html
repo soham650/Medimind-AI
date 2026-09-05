@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MediMind - Smart AI Healthcare Platform</title>
+    <!-- Google Fonts & Material Symbols -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="stylesheet" />
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+      try {
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              colors: {
+                "surface-variant": "#d7e2ff",
+                "error-container": "#ffdad6",
+                "on-primary": "#ffffff",
+                "inverse-surface": "#1d3052",
+                "tertiary-fixed": "#e5deff",
+                "surface-container-high": "#e0e8ff",
+                "surface-dim": "#cadaff",
+                "secondary-container": "#82f9be",
+                "on-tertiary-fixed": "#1a0063",
+                "primary-container": "#0052cc",
+                "on-secondary": "#ffffff",
+                "inverse-primary": "#b2c5ff",
+                "on-surface-variant": "#434654",
+                "secondary": "#006c47",
+                "on-tertiary-fixed-variant": "#4633a0",
+                "on-tertiary": "#ffffff",
+                "surface-tint": "#0c56d0",
+                "primary": "#003d9b",
+                "on-secondary-fixed-variant": "#005235",
+                "background": "#f9f9ff",
+                "surface-container-highest": "#d7e2ff",
+                "tertiary-container": "#5b49b5",
+                "on-error-container": "#93000a",
+                "surface-container-low": "#f1f3ff",
+                "outline": "#737685",
+                "surface-bright": "#f9f9ff",
+                "on-secondary-container": "#00734c",
+                "on-error": "#ffffff",
+                "inverse-on-surface": "#edf0ff",
+                "surface-container": "#e8edff",
+                "on-tertiary-container": "#d5ccff",
+                "outline-variant": "#c3c6d6",
+                "secondary-fixed-dim": "#65dca4",
+                "on-secondary-fixed": "#002113",
+                "tertiary": "#432f9c",
+                "on-primary-fixed-variant": "#0040a2",
+                "error": "#ba1a1a",
+                "surface": "#f9f9ff",
+                "secondary-fixed": "#82f9be",
+                "on-background": "#041b3c",
+                "on-primary-container": "#c4d2ff",
+                "tertiary-fixed-dim": "#c9bfff",
+                "on-primary-fixed": "#001848",
+                "primary-fixed": "#dae2ff",
+                "primary-fixed-dim": "#b2c5ff",
+                "surface-container-lowest": "#ffffff",
+                "on-surface": "#041b3c"
+              },
+              borderRadius: {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+              },
+              spacing: {
+                "margin-desktop": "32px",
+                "container-max": "1440px",
+                "margin-mobile": "16px",
+                "gutter": "24px",
+                "stack-sm": "8px",
+                "unit": "8px",
+                "stack-md": "16px",
+                "stack-lg": "32px"
+              }
+            }
+          }
+        };
+      } catch (_e) {}
+    </script>
+    <style>
+      .shimmer-effect {
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+          background-size: 200% 100%;
+          animation: shimmer 2s infinite;
+      }
+      @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+      }
+      .tab-transition { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -1,0 +1,45 @@
+# Dependency directories
+node_modules/
+**/node_modules/
+jspm_packages/
+web_drivers/
+
+# Local env files
+.env
+.env.*
+!.env.example
+*.env
+**/.env
+
+# Build directories
+dist/
+**/dist/
+dist-ssr/
+build/
+out/
+
+# Python Virtual Environments
+venv/
+**/venv/
+.venv/
+**/env/
+ENV/
+
+# Python cache & test files
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# IDE/OS files
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

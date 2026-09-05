@@ -1,0 +1,449 @@
+{
+    "Common Cold": {
+        "description": "A common viral infection of the nose and throat. Usually harmless, though it might not feel that way.",
+        "precautions": [
+            "Drink warm fluids",
+            "Get plenty of rest",
+            "Take steam inhalation",
+            "Avoid cold drinks"
+        ],
+        "medications": [
+            "Antihistamines",
+            "Decongestants",
+            "Paracetamol",
+            "Vitamin C"
+        ],
+        "diets": [
+            "Warm vegetable soup",
+            "Ginger tea",
+            "Citrus fruits",
+            "Hot broth"
+        ],
+        "specialist": "General Physician"
+    },
+    "Influenza": {
+        "description": "A highly contagious viral infection that attacks the respiratory system (nose, throat, and lungs).",
+        "precautions": [
+            "Complete bed rest",
+            "Isolate from others",
+            "Hydrate frequently",
+            "Wear a mask"
+        ],
+        "medications": [
+            "Antiviral drugs (Oseltamivir)",
+            "Paracetamol",
+            "Cough suppressants"
+        ],
+        "diets": [
+            "Light broths",
+            "Warm water with honey",
+            "Herbal teas",
+            "Oatmeal"
+        ],
+        "specialist": "General Physician / Pulmonologist"
+    },
+    "COVID-19": {
+        "description": "An infectious disease caused by the SARS-CoV-2 virus, leading to respiratory symptoms and potential complications.",
+        "precautions": [
+            "Isolate for 5-7 days",
+            "Monitor blood oxygen level (SpO2)",
+            "Wear N95 mask",
+            "Seek immediate help if breathing is difficult"
+        ],
+        "medications": [
+            "Paracetamol",
+            "Vitamin C & Zinc",
+            "Cough syrup",
+            "Antivirals (if prescribed)"
+        ],
+        "diets": [
+            "Protein-rich foods",
+            "Citrus fruits",
+            "Warm water",
+            "Leafy vegetables"
+        ],
+        "specialist": "Pulmonologist / General Physician"
+    },
+    "Typhoid": {
+        "description": "A bacterial infection caused by Salmonella typhi, spreads through contaminated food and water.",
+        "precautions": [
+            "Drink boiled/purified water",
+            "Eat thoroughly cooked hot food",
+            "Maintain hand hygiene",
+            "Avoid street food"
+        ],
+        "medications": [
+            "Antibiotics (Ciprofloxacin/Ceftriaxone)",
+            "Antipyretics",
+            "ORS (Oral Rehydration Solution)"
+        ],
+        "diets": [
+            "Soft digestible foods",
+            "Khichdi",
+            "Banana",
+            "Coconut water"
+        ],
+        "specialist": "General Physician / Internal Medicine Specialist"
+    },
+    "Dengue": {
+        "description": "A mosquito-borne viral disease causing high fever, severe headache, and joint/muscle pain.",
+        "precautions": [
+            "Use mosquito nets",
+            "Apply insect repellent",
+            "Avoid water stagnation nearby",
+            "Monitor platelet counts"
+        ],
+        "medications": [
+            "Paracetamol (DO NOT take Ibuprofen/Aspirin due to bleeding risk)",
+            "ORS"
+        ],
+        "diets": [
+            "Papaya leaf extract",
+            "Coconut water",
+            "Fresh juices",
+            "Pomegranate"
+        ],
+        "specialist": "General Physician / Infectious Disease Specialist"
+    },
+    "Malaria": {
+        "description": "A life-threatening disease caused by plasmodium parasites transmitted through infected female Anopheles mosquitoes.",
+        "precautions": [
+            "Use mosquito repellent",
+            "Wear long sleeves",
+            "Sleep under bed nets",
+            "Keep surroundings dry"
+        ],
+        "medications": [
+            "Antimalarials (Artemether-Lumefantrine/Chloroquine)",
+            "Paracetamol"
+        ],
+        "diets": [
+            "Apple",
+            "Light rice and pulses",
+            "Steamed vegetables",
+            "Citrus juice"
+        ],
+        "specialist": "General Physician / Infectious Disease Specialist"
+    },
+    "Chikungunya": {
+        "description": "A viral disease transmitted by mosquitoes, causing sudden high fever and debilitating joint pain.",
+        "precautions": [
+            "Avoid mosquito bites",
+            "Take joint-friendly rest",
+            "Apply cold compresses",
+            "Stay hydrated"
+        ],
+        "medications": [
+            "Paracetamol (Avoid Aspirin)",
+            "Pain-relieving ointments"
+        ],
+        "diets": [
+            "Fluid-rich diet",
+            "Green leafy vegetables",
+            "Citrus fruits",
+            "Bone broth"
+        ],
+        "specialist": "General Physician / Rheumatologist"
+    },
+    "Diabetes ": {
+        "description": "A chronic metabolic condition characterized by high levels of blood glucose (blood sugar) due to insulin resistance or deficiency.",
+        "precautions": [
+            "Monitor blood sugar regularly",
+            "Exercise daily (walk 30 mins)",
+            "Inspect feet daily",
+            "Avoid skipping meals"
+        ],
+        "medications": [
+            "Metformin",
+            "Insulin therapy (if prescribed)",
+            "SGLT2 inhibitors"
+        ],
+        "diets": [
+            "High-fiber foods",
+            "Whole grains",
+            "Low-glycemic index foods",
+            "Avoid refined sugar"
+        ],
+        "specialist": "Endocrinologist"
+    },
+    "Hypertension ": {
+        "description": "A common condition where the long-term force of the blood against your artery walls is high enough to cause health problems.",
+        "precautions": [
+            "Reduce salt/sodium intake",
+            "Manage stress",
+            "Avoid smoking & alcohol",
+            "Monitor blood pressure daily"
+        ],
+        "medications": [
+            "Beta-blockers (Atenolol)",
+            "ACE Inhibitors (Enalapril)",
+            "Calcium channel blockers"
+        ],
+        "diets": [
+            "DASH diet",
+            "Bananas (potassium-rich)",
+            "Garlic",
+            "Low-fat dairy"
+        ],
+        "specialist": "Cardiologist / General Physician"
+    },
+    "Coronary Heart Disease": {
+        "description": "A condition where major blood vessels supplying the heart become damaged or clogged with cholesterol deposits.",
+        "precautions": [
+            "Avoid heavy physical exertion",
+            "Follow low-fat lifestyle",
+            "Regular cardiac checkups",
+            "Carry Sorbitrate if prescribed"
+        ],
+        "medications": [
+            "Aspirin",
+            "Statins (Atorvastatin)",
+            "Beta-blockers",
+            "Nitroglycerin"
+        ],
+        "diets": [
+            "Oats and grains",
+            "Olive oil",
+            "Omega-3 rich foods (fish/nuts)",
+            "Garlic"
+        ],
+        "specialist": "Cardiologist"
+    },
+    "Asthma": {
+        "description": "A respiratory condition marked by spasms in the bronchi of the lungs, causing difficulty in breathing.",
+        "precautions": [
+            "Avoid dust & smoke",
+            "Always carry quick-relief inhaler",
+            "Keep indoor air clean",
+            "Avoid sudden temperature changes"
+        ],
+        "medications": [
+            "Bronchodilators (Albuterol inhaler)",
+            "Inhaled corticosteroids"
+        ],
+        "diets": [
+            "Foods rich in Vitamin D & E",
+            "Ginger & Turmeric",
+            "Warm herbal teas"
+        ],
+        "specialist": "Pulmonologist / Allergist"
+    },
+    "Pneumonia": {
+        "description": "An infection that inflames the air sacs in one or both lungs, which may fill with fluid or pus.",
+        "precautions": [
+            "Complete course of antibiotics",
+            "Use humidifier",
+            "Avoid tobacco smoke",
+            "Rest in upright position"
+        ],
+        "medications": [
+            "Antibiotics (Azithromycin)",
+            "Cough suppressants",
+            "Paracetamol"
+        ],
+        "diets": [
+            "Protein-dense food",
+            "Warm soups",
+            "Fennel tea",
+            "Plenty of water"
+        ],
+        "specialist": "Pulmonologist / General Physician"
+    },
+    "Bronchitis": {
+        "description": "Inflammation of the lining of your bronchial tubes, which carry air to and from your lungs.",
+        "precautions": [
+            "Avoid dust and fumes",
+            "Use steam inhalation",
+            "Keep throat moist",
+            "Rest well"
+        ],
+        "medications": [
+            "Expectorants",
+            "Bronchodilators",
+            "Anti-inflammatory drugs"
+        ],
+        "diets": [
+            "Warm lemon water",
+            "Honey and ginger",
+            "Soups and broths"
+        ],
+        "specialist": "Pulmonologist / General Physician"
+    },
+    "Tuberculosis (TB)": {
+        "description": "A potentially serious infectious bacterial disease that mainly affects the lungs, spreading via tiny droplets.",
+        "precautions": [
+            "Strictly adhere to DOTS treatment",
+            "Wear a mask when around others",
+            "Ensure good ventilation",
+            "Do not skip doses"
+        ],
+        "medications": [
+            "Isoniazid",
+            "Rifampin",
+            "Pyrazinamide",
+            "Ethambutol"
+        ],
+        "diets": [
+            "High-calorie, high-protein foods",
+            "Milk",
+            "Eggs",
+            "Pulses and cereals"
+        ],
+        "specialist": "Pulmonologist / ID Specialist"
+    },
+    "Gastritis": {
+        "description": "An inflammation, irritation, or erosion of the protective lining of the stomach.",
+        "precautions": [
+            "Avoid spicy and greasy foods",
+            "Eat small, frequent meals",
+            "Limit caffeine and alcohol",
+            "Do not lie down right after eating"
+        ],
+        "medications": [
+            "Antacids",
+            "H2 blockers (Famotidine)",
+            "PPIs (Pantoprazole)"
+        ],
+        "diets": [
+            "Coconut water",
+            "Oatmeal",
+            "Banana",
+            "Probiotic yogurt"
+        ],
+        "specialist": "Gastroenterologist"
+    },
+    "Food Poisoning": {
+        "description": "Illness caused by food contaminated with bacteria, viruses, parasites, or toxins.",
+        "precautions": [
+            "Stay hydrated with ORS",
+            "Avoid solid food for a few hours",
+            "Rest the stomach",
+            "Wash hands thoroughly"
+        ],
+        "medications": [
+            "ORS",
+            "Loperamide (if diarrhea is non-infectious)",
+            "Probiotics"
+        ],
+        "diets": [
+            "BRAT diet (Banana, Rice, Applesauce, Toast)",
+            "Clear broth",
+            "Electrolyte drinks"
+        ],
+        "specialist": "General Physician / Gastroenterologist"
+    },
+    "Jaundice (Viral Hepatitis A/E)": {
+        "description": "A yellow discoloration of the skin and eyes caused by high bilirubin levels, often due to viral hepatitis.",
+        "precautions": [
+            "Strict bed rest",
+            "Avoid all fats, oils, and spices",
+            "Avoid alcohol completely",
+            "Drink boiled water"
+        ],
+        "medications": [
+            "Hepatoprotective supplements",
+            "Symptomatic treatment"
+        ],
+        "diets": [
+            "Sugarcane juice",
+            "Boiled vegetables without oil",
+            "Radish juice",
+            "Barley water"
+        ],
+        "specialist": "Gastroenterologist / Hepatologist"
+    },
+    "Allergic Rhinitis": {
+        "description": "An allergic response causing itchy, watery eyes, sneezing, and other similar symptoms, triggered by pollen, dust, etc.",
+        "precautions": [
+            "Avoid allergens (pollen, dust)",
+            "Keep windows closed during high pollen counts",
+            "Use saline nasal spray"
+        ],
+        "medications": [
+            "Antihistamines (Levocetirizine)",
+            "Nasal corticosteroid sprays"
+        ],
+        "diets": [
+            "Vitamin C rich foods",
+            "Flaxseeds (Omega-3)",
+            "Hot ginger tea"
+        ],
+        "specialist": "Allergist / ENT Specialist"
+    },
+    "Fungal Skin Infection": {
+        "description": "An inflammatory skin condition caused by a fungus, leading to red, itchy, or scaly patches.",
+        "precautions": [
+            "Keep affected area dry and clean",
+            "Do not scratch",
+            "Wear loose cotton clothes",
+            "Avoid sharing towels/clothes"
+        ],
+        "medications": [
+            "Antifungal creams (Clotrimazole)",
+            "Oral antifungals (Fluconazole)"
+        ],
+        "diets": [
+            "Garlic-rich foods",
+            "Probiotics",
+            "Avoid excessive sugars"
+        ],
+        "specialist": "Dermatologist"
+    },
+    "Migraine": {
+        "description": "A neurological condition that can cause multiple symptoms, most notably a throbbing headache on one side of the head.",
+        "precautions": [
+            "Avoid loud noise and bright lights",
+            "Maintain a sleep schedule",
+            "Identify and avoid food triggers",
+            "Keep hydrated"
+        ],
+        "medications": [
+            "Triptans (Sumatriptan)",
+            "Analgesics (Ibuprofen)",
+            "Prophylactics (Propranolol)"
+        ],
+        "diets": [
+            "Ginger tea",
+            "Magnesium-rich foods (spinach/almonds)",
+            "Avoid aged cheese/processed meats"
+        ],
+        "specialist": "Neurologist / General Physician"
+    },
+    "Anemia (Iron-deficiency)": {
+        "description": "A condition in which blood lacks adequate healthy red blood cells, caused by insufficient iron stores.",
+        "precautions": [
+            "Take iron supplements with Vitamin C for absorption",
+            "Avoid tea/coffee with meals (blocks iron)",
+            "Regular blood counts"
+        ],
+        "medications": [
+            "Iron supplements (Ferrous ascorbate)",
+            "Folic acid"
+        ],
+        "diets": [
+            "Spinach and green leafy vegetables",
+            "Beetroot",
+            "Red meat / Eggs",
+            "Pomegranate"
+        ],
+        "specialist": "Hematologist / General Physician"
+    },
+    "Vitamin D Deficiency": {
+        "description": "A condition where there is an inadequate level of Vitamin D in the body, leading to weak bones and muscles.",
+        "precautions": [
+            "Get 15-20 mins morning sunlight exposure",
+            "Take prescribed supplements weekly",
+            "Eat fortified foods"
+        ],
+        "medications": [
+            "Cholecalciferol (Vitamin D3) weekly capsules"
+        ],
+        "diets": [
+            "Egg yolks",
+            "Mushrooms",
+            "Fortified milk",
+            "Fatty fish (Salmon)"
+        ],
+        "specialist": "Endocrinologist / Orthopedic Surgeon"
+    }
+}

@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  ml-service:
+    build: ./ml-service
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - ./ml-service:/app
+    restart: always
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_SUPABASE_URL=https://smmelvzldriqujaodckf.supabase.co
+      - VITE_SUPABASE_ANON_KEY=sb_publishable_Ob9c_PL48MfyzxfEVSlYcw_KwD0KucG
+      - VITE_ML_SERVICE_URL=http://localhost:8000
+    depends_on:
+      - ml-service
+    restart: always
