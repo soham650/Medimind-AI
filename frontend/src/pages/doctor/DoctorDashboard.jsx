@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { doctorService } from '../../services';
 import { Link } from 'react-router-dom';
 import { 
   Users, 
@@ -125,6 +126,56 @@ export default function DoctorDashboard() {
       icon: 'building'
     }
   ]);
+
+  // Live Database Hydration for Mission Control
+  const [loadingCensus, setLoadingCensus] = useState(false);
+  const [missionControlKPIs, setMissionControlKPIs] = useState(null);
+
+  useEffect(() => {
+    async function loadMissionControl() {
+      if (!profile?.id) return;
+      setLoadingCensus(true);
+      try {
+        const data = await doctorService.getMissionControlData(profile.id);
+        if (data) {
+          setMissionControlKPIs(data);
+          if (data.inpatientCensus && data.inpatientCensus.length > 0) {
+            setWardPatients(data.inpatientCensus.map((p, idx) => ({
+              id: p.id || `p-${idx}`,
+              name: p.name,
+              initials: (p.name || 'IP').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase(),
+              avatarBg: idx % 2 === 0 ? '#eff6ff' : '#fee2e2',
+              avatarColor: idx % 2 === 0 ? '#2563eb' : '#dc2626',
+              abhaId: p.abha || '91-2384-2938-12',
+              vitalsStatus: p.vitals?.bp_systolic > 140 ? 'elevated' : 'stable',
+              diagnosis: p.diagnosis || 'Cardiorespiratory Review',
+              diagnosisColor: '#f1f5f9',
+              diagnosisText: '#334155',
+              roomBed: p.room || `WARD 4B - Bed ${idx + 1}`,
+              stabilityIndex: p.risk || 'STABLE',
+              stabilityType: p.risk === 'CRITICAL STATUS' ? 'danger' : p.risk === 'ELEVATED RISK' ? 'warning' : 'success',
+              actionText: 'View Chart'
+            })));
+          }
+          if (data.todaySchedule && data.todaySchedule.length > 0) {
+            setRoundings(data.todaySchedule.map(s => ({
+              id: s.id,
+              date: s.appointment_date || 'TODAY',
+              name: s.patients?.full_name || 'Scheduled Patient',
+              type: s.consultation_type === 'online' ? 'Tele-consult' : 'OPD Room',
+              time: s.time_slot || '10:00 AM',
+              icon: s.consultation_type === 'online' ? 'video' : 'building'
+            })));
+          }
+        }
+      } catch (err) {
+        console.warn('Mission control hydration notice:', err);
+      } finally {
+        setLoadingCensus(false);
+      }
+    }
+    loadMissionControl();
+  }, [profile?.id]);
 
   // Charts Data
   const throughputData = [

@@ -43,3 +43,7 @@ __pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+# Temporary CLI artifacts
+.temp/
+**/.temp/

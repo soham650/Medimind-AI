@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { Link } from 'react-router-dom';
 import { pharmacyService } from '../../services/pharmacyService';
 import { prescriptionService } from '../../services/prescriptionService';
-import { ShoppingCart, Store, Plus, Minus, CheckCircle, FileText, CreditCard, ShieldCheck } from 'lucide-react';
+import { ShoppingCart, Store, Plus, Minus, CheckCircle, FileText, CreditCard, ShieldCheck, Package } from 'lucide-react';
 
 export default function PharmacyStore() {
   const { user } = useAuth();
@@ -115,12 +116,32 @@ export default function PharmacyStore() {
           <div style={{ padding: '12px', background: '#f0fdf4', borderRadius: '8px', fontSize: '13px', color: '#166534', margin: '20px 0' }}>
             Fulfilling Pharmacy: <strong>{selectedPharmacy?.pharmacy_name || 'Accredited Dispensary'}</strong>
           </div>
-          <button
-            onClick={() => setOrderComplete(null)}
-            style={{ padding: '10px 24px', background: '#0a4bb5', color: '#ffffff', borderRadius: '8px', border: 'none', fontWeight: '700', cursor: 'pointer' }}
-          >
-            Continue Browsing Catalog
-          </button>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '20px', flexWrap: 'wrap' }}>
+            <Link
+              to="/patient/orders"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 24px',
+                background: '#0a4bb5',
+                color: '#ffffff',
+                borderRadius: '8px',
+                textDecoration: 'none',
+                fontWeight: '700',
+                fontSize: '13px',
+                boxShadow: '0 2px 4px rgba(10, 75, 181, 0.2)'
+              }}
+            >
+              <Package size={16} /> Track My Order & Delivery
+            </Link>
+            <button
+              onClick={() => setOrderComplete(null)}
+              style={{ padding: '10px 20px', background: '#f1f5f9', color: '#475569', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '600', fontSize: '13px', cursor: 'pointer' }}
+            >
+              Continue Browsing
+            </button>
+          </div>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '24px' }}>

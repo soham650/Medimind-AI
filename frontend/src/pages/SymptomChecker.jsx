@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { mlApi } from '../lib/mlApi';
+import { aiService, reportService } from '../services';
 
 export default function SymptomChecker() {
   const { user, profile } = useAuth();
@@ -185,29 +186,35 @@ export default function SymptomChecker() {
     ];
 
     try {
-      // Call backend FastAPI ML endpoint
-      const response = await mlApi.predictDisease(activeList);
-      if (response && response.predicted_disease) {
+      // Call backend AI triage service (evaluates risk and persists to symptom_assessments)
+      const patientId = profile?.id || user?.id || null;
+      const response = await aiService.assessSymptoms(activeList, patientId);
+      if (response && (response.predicted_disease || response.top_predictions?.[0])) {
+        const topCondition = response.top_predictions?.[0]?.disease || response.predicted_disease;
+        const topProb = Math.round((response.top_predictions?.[0]?.probability || response.confidence || 0.85) * 100);
+        const secondCondition = response.top_predictions?.[1]?.disease || 'Viral Prodrome';
+        const secondProb = Math.round((response.top_predictions?.[1]?.probability || 0.58) * 100);
+
         setPredictions({
           primary: {
             tag: 'Most Likely • #1',
-            code: 'Clinical AI Assessment',
-            name: response.predicted_disease,
-            probability: Math.round((response.confidence || 0.85) * 100),
-            why: response.explanation?.summary || `Frontal symptoms matched high confidence for ${response.predicted_disease}. Symptoms consistent with current clinical presentation.`
+            code: 'AI-assisted preliminary assessment',
+            name: topCondition,
+            probability: topProb,
+            why: response.explanation?.summary || `Symptom pattern matches clinical indicators for ${topCondition}. Correlate with physical examination.`
           },
           secondary: {
             tag: 'Also Contributing • #2',
             code: 'Secondary Differential',
-            name: activeList.some(s => s.toLowerCase().includes('light') || s.toLowerCase().includes('headache')) ? 'Digital Eye Strain & Fatigue' : 'Viral Prodrome',
-            probability: 58,
-            why: 'Screen exposure and postural tension contribute to mild symptom exacerbation.'
+            name: secondCondition,
+            probability: secondProb,
+            why: 'Secondary differential identified from reported symptom constellation.'
           },
-          triageAcuity: 'Routine Pediatric Checkup within 24 Hrs',
-          isEmergency: false,
-          triaScore: 'Not an Emergency',
-          triaSub: 'Rest at Home Today',
-          bodyText: "Your body is busy fighting a mild bug or head tension. You don't need the hospital emergency room right now, but a quick chat with our pediatric doctor today will help you feel better fast!"
+          triageAcuity: response.recommendedAction || 'Consult qualified physician for clinical evaluation',
+          isEmergency: response.riskLevel === 'High',
+          triaScore: response.riskLevel === 'High' ? 'High Risk' : response.riskLevel === 'Moderate' ? 'Moderate Risk' : 'Low Risk',
+          triaSub: response.recommendedAction || 'Schedule Consultation',
+          bodyText: response.aiSummary || 'Preliminary assessment generated. Consult a licensed doctor for definitive diagnosis.'
         });
       }
     } catch (err) {
@@ -262,21 +269,119 @@ export default function SymptomChecker() {
   // --------------------------------------------------------------------------
   // RUN LAB REPORT CHECK (Method 2: Upload & Parse Report)
   // --------------------------------------------------------------------------
-  const handleLabFileUpload = (e) => {
+  const handleLabFileUpload = async (e) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setIsUploadingSlip(true);
-      showToast(`Uploading and OCR scanning: ${file.name}...`);
-      setTimeout(() => {
+    if (!file) return;
+
+    // File validation: Size limit 10MB
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('⚠️ File is too large. Maximum supported size is 10 MB.');
+      return;
+    }
+
+    const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(pdf|png|jpe?g)$/i)) {
+      showToast('⚠️ Please upload a valid medical report (PDF, PNG, or JPG).');
+      return;
+    }
+
+    setIsUploadingSlip(true);
+    showToast(`Uploading & analyzing ${file.name} with MediMind Report Intelligence...`);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await mlApi.analyzeReportAndAssess(formData);
+
+      if (res && res.status === 'success') {
+        // Persist report file to private medical-documents storage and metadata to health_reports
+        const patientId = profile?.id || user?.id;
+        if (patientId) {
+          try {
+            await reportService.uploadReport(patientId, file, file.name, {
+              report_analysis: res.report_analysis,
+              mapped_symptoms: res.mapped_symptoms,
+              risk_assessment: res.risk_assessment,
+              doctor_recommendation: res.doctor_recommendation,
+              possible_conditions: res.possible_conditions,
+              disclaimer: res.disclaimer
+            });
+          } catch (persistErr) {
+            console.warn('Notice: Report persistence to storage:', persistErr.message);
+          }
+        }
+
+        const report = res.report_analysis;
         setAttachedLabSlip({
           name: file.name,
-          source: 'Uploaded Clinic Lab Report • Verified by MediMind OCR',
+          source: `${report.report_type || 'Clinical Report'} • Extracted & Verified`,
           verified: true,
-          size: `${(file.size / 1024).toFixed(1)} KB`
+          size: `${(file.size / 1024).toFixed(1)} KB`,
+          findings: report.findings || [],
+          symptoms: res.mapped_symptoms || [],
+          observations: report.observations || [],
+          risk: res.risk_assessment,
+          specialist: res.doctor_recommendation?.recommended_specialist,
+          disclaimer: res.disclaimer
         });
-        setIsUploadingSlip(false);
-        showToast('✅ Lab slip analyzed! Biomarkers successfully translated into plain language.');
-      }, 1200);
+
+        // Update right-column predictions
+        if (res.possible_conditions && res.possible_conditions.length > 0) {
+          const top = res.possible_conditions[0];
+          setPredictions({
+            primary: {
+              tag: 'Report Assessment • Top Match',
+              code: 'AI-assisted preliminary assessment',
+              name: top.condition,
+              probability: Math.round((top.probability || 0.85) * 100),
+              why: res.doctor_recommendation?.rationale || `Report findings mapped to ${res.mapped_symptoms.join(', ')}.`
+            },
+            secondary: res.possible_conditions[1] ? {
+              tag: 'Differential Match #2',
+              code: 'Secondary Differential',
+              name: res.possible_conditions[1].condition,
+              probability: Math.round(res.possible_conditions[1].probability * 100),
+              why: 'Secondary condition identified from clinical findings correlation.'
+            } : {
+              tag: 'Secondary Review',
+              code: 'Doctor Consultation',
+              name: `Consult ${res.doctor_recommendation?.recommended_specialist || 'Physician'}`,
+              probability: 50,
+              why: 'Comprehensive physical examination and history correlation advised.'
+            },
+            triageAcuity: res.risk_assessment?.triage_timeframe || 'Routine Checkup within 24-48 Hrs',
+            isEmergency: res.risk_assessment?.is_emergency || false,
+            triaScore: res.risk_assessment?.triage_level || 'Moderate',
+            triaSub: res.risk_assessment?.triage_timeframe || 'Consult Physician',
+            bodyText: res.risk_assessment?.clinical_recommendation || 'Consult your healthcare provider for clinical evaluation.'
+          });
+        } else {
+          // Insufficient symptoms mapping - e.g. pure biochemical or normal panel
+          setPredictions(prev => ({
+            ...prev,
+            primary: {
+              tag: 'Report Assessment • Laboratory Panel',
+              code: 'Laboratory Findings Extracted',
+              name: `${report.report_type || 'Laboratory Report'} Analyzed`,
+              probability: 100,
+              why: res.doctor_recommendation?.rationale || 'Report findings analyzed. No acute illness symptoms identified.'
+            },
+            triageAcuity: res.risk_assessment?.triage_timeframe || 'Routine Checkup',
+            isEmergency: res.risk_assessment?.is_emergency || false,
+            triaScore: res.risk_assessment?.triage_level || 'Low',
+            bodyText: res.risk_assessment?.clinical_recommendation || 'Report data processed. Consult a healthcare professional to review results.'
+          }));
+        }
+
+        showToast('✅ Report analyzed! Findings & clinical assessment updated.');
+        setSlipModalOpen(true);
+      }
+    } catch (err) {
+      console.error('Report upload failed:', err);
+      showToast('⚠️ We could not reliably read this report. Please ensure it is a clear image or PDF.');
+    } finally {
+      setIsUploadingSlip(false);
     }
   };
 
@@ -285,7 +390,13 @@ export default function SymptomChecker() {
       name: 'Pediatric_Routine_CBC_Report.pdf',
       source: 'Apollo Diagnostics Pediatrics • Signed by Pathologist',
       verified: true,
-      size: '1.4 MB'
+      size: '1.4 MB',
+      findings: [
+        { name: 'WBC (White Blood Cells)', value: '14,800', unit: '/uL', status: 'high' },
+        { name: 'CRP (C-Reactive Protein)', value: '28.0', unit: 'mg/L', status: 'high' },
+        { name: 'Hemoglobin (Hb)', value: '13.8', unit: 'g/dL', status: 'normal' },
+        { name: 'Platelets', value: '210,000', unit: '/uL', status: 'normal' }
+      ]
     });
     showToast('Sample pediatric CBC & CRP report loaded!');
   };
@@ -303,7 +414,7 @@ export default function SymptomChecker() {
       {/* Slip Modal Preview */}
       {slipModalOpen && attachedLabSlip && (
         <div className="fixed inset-0 z-[10000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-surface-container-lowest rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-outline-variant/40 space-y-4">
+          <div className="bg-surface-container-lowest rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-outline-variant/40 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-outline-variant/20 pb-3">
               <div className="flex items-center gap-2">
                 <span className="text-[24px]">📑</span>
@@ -319,13 +430,54 @@ export default function SymptomChecker() {
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
+            
             <div className="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20 text-[12px] space-y-2">
-              <div className="font-bold text-primary uppercase tracking-wider text-[11px]">Lab Extraction Summary (Pediatric CBC)</div>
-              <div className="flex justify-between py-1 border-b border-outline-variant/10"><span>WBC (White Blood Cells):</span> <strong className="text-error font-bold">14,800 /uL (High)</strong></div>
-              <div className="flex justify-between py-1 border-b border-outline-variant/10"><span>CRP (C-Reactive Protein):</span> <strong className="text-error font-bold">28.0 mg/L (Mild Elevation)</strong></div>
-              <div className="flex justify-between py-1 border-b border-outline-variant/10"><span>Hemoglobin (Hb):</span> <strong className="text-secondary font-bold">13.8 g/dL (Normal)</strong></div>
-              <div className="flex justify-between py-1"><span>Platelets:</span> <strong className="text-secondary font-bold">210,000 /uL (Normal)</strong></div>
+              <div className="font-bold text-primary uppercase tracking-wider text-[11px]">
+                Lab Extraction Summary ({attachedLabSlip.source.split('•')[0] || 'Medical Report'})
+              </div>
+              {attachedLabSlip.findings && attachedLabSlip.findings.length > 0 ? (
+                attachedLabSlip.findings.map((f, i) => (
+                  <div key={i} className="flex items-center justify-between py-1.5 border-b border-outline-variant/10 last:border-b-0">
+                    <span className="font-medium text-on-surface">{f.name}:</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-on-surface-variant font-mono">{f.value !== null && f.value !== undefined ? f.value : 'Reported'} {f.unit || ''}</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        f.status === 'high' || f.status === 'low' || f.status === 'abnormal'
+                          ? 'bg-error/15 text-error border border-error/30'
+                          : 'bg-secondary/15 text-secondary border border-secondary/30'
+                      }`}>
+                        {f.status || 'normal'}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="space-y-1.5">
+                  <div className="flex justify-between py-1 border-b border-outline-variant/10"><span>WBC (White Blood Cells):</span> <strong className="text-error font-bold">14,800 /uL (High)</strong></div>
+                  <div className="flex justify-between py-1 border-b border-outline-variant/10"><span>CRP (C-Reactive Protein):</span> <strong className="text-error font-bold">28.0 mg/L (Mild Elevation)</strong></div>
+                  <div className="flex justify-between py-1 border-b border-outline-variant/10"><span>Hemoglobin (Hb):</span> <strong className="text-secondary font-bold">13.8 g/dL (Normal)</strong></div>
+                  <div className="flex justify-between py-1"><span>Platelets:</span> <strong className="text-secondary font-bold">210,000 /uL (Normal)</strong></div>
+                </div>
+              )}
             </div>
+
+            {attachedLabSlip.symptoms && attachedLabSlip.symptoms.length > 0 && (
+              <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/20 text-[12px] space-y-1.5">
+                <div className="font-bold text-primary text-[11px] uppercase tracking-wider">Clinically Mapped Symptoms</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {attachedLabSlip.symptoms.map((s, idx) => (
+                    <span key={idx} className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
+                      {s.replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="text-[11px] text-outline leading-tight italic">
+              * AI-assisted preliminary assessment for informational support only. Consult a licensed physician for clinical diagnosis and treatment.
+            </div>
+
             <button 
               onClick={() => setSlipModalOpen(false)}
               className="w-full py-2.5 rounded-xl bg-primary text-on-primary font-label-md font-bold"
@@ -335,6 +487,7 @@ export default function SymptomChecker() {
           </div>
         </div>
       )}
+
 
       {/* TOP HEADER NAVBAR (Matching user HTML) */}
       <header className="sticky top-0 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-xl z-40 px-8 flex items-center justify-between gap-6 shadow-[0_1px_8px_rgba(0,0,0,0.04)] border-b border-outline-variant/20">

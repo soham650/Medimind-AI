@@ -31,6 +31,14 @@ export const reportService = {
         storage_path: storagePath,
         mime_type: file.type || 'application/pdf',
         file_size_bytes: file.size,
+        processing_status: 'completed',
+        report_type: aiAnalysis?.report_analysis?.report_type || 'Clinical Report',
+        findings: aiAnalysis?.report_analysis?.findings || [],
+        normalized_findings: aiAnalysis?.report_analysis?.normalized_findings || [],
+        mapped_symptoms: aiAnalysis?.mapped_symptoms || [],
+        provider: aiAnalysis?.provider || 'google',
+        model: aiAnalysis?.model || 'gemini-3.5-flash-lite',
+        prompt_version: aiAnalysis?.prompt_version || 'report-analysis-v1',
         ai_analysis: aiAnalysis
       })
       .select()

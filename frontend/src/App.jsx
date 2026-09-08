@@ -27,7 +27,9 @@ import {
   TrendingUp,
   MoreVertical,
   ChevronRight,
-  Calendar
+  Calendar,
+  UserCheck,
+  Layers
 } from 'lucide-react';
 
 // Context
@@ -55,6 +57,9 @@ import TrialsExplorer from './pages/TrialsExplorer';
 import Billing from './pages/Billing';
 import Analytics from './pages/Analytics';
 import LabDiagnostics from './pages/patient/LabDiagnostics';
+import PatientOrders from './pages/patient/PatientOrders';
+import PatientAppointments from './pages/patient/PatientAppointments';
+import PatientProfile from './pages/patient/PatientProfile';
 
 // Doctor Portal Pages
 import DoctorDashboard from './pages/doctor/DoctorDashboard';
@@ -63,17 +68,23 @@ import ConsultationRoom from './pages/doctor/ConsultationRoom';
 import PrescriptionGenerator from './pages/doctor/PrescriptionGenerator';
 import AiInsights from './pages/doctor/AiInsights';
 import DoctorHealthRecords from './pages/doctor/DoctorHealthRecords';
+import DoctorAvailability from './pages/doctor/DoctorAvailability';
+import DoctorProfile from './pages/doctor/DoctorProfile';
 
 // Pharmacy Portal Pages
 import PharmacyDashboard from './pages/pharmacy/PharmacyDashboard';
 import OrderProcessing from './pages/pharmacy/OrderProcessing';
 import InventoryManagement from './pages/pharmacy/InventoryManagement';
+import BatchManagement from './pages/pharmacy/BatchManagement';
+import PharmacyProfile from './pages/pharmacy/PharmacyProfile';
 
 // Super Admin Portal Pages
 import AdminDashboard from './pages/admin/AdminDashboard';
 import DoctorApprovals from './pages/admin/DoctorApprovals';
 import PharmacyApprovals from './pages/admin/PharmacyApprovals';
 import AuditLogs from './pages/admin/AuditLogs';
+import UserManagement from './pages/admin/UserManagement';
+import SystemSettings from './pages/admin/SystemSettings';
 
 export { useAuth };
 
@@ -145,6 +156,10 @@ function AppContent() {
                 <Route path="/consult" element={<DoctorRecommendation />} />
                 <Route path="/prescriptions" element={<PatientPrescriptions />} />
                 <Route path="/pharmacy" element={<PharmacyStore />} />
+                <Route path="/patient/orders" element={<PatientOrders />} />
+                <Route path="/orders" element={<PatientOrders />} />
+                <Route path="/patient/appointments" element={<PatientAppointments />} />
+                <Route path="/patient/profile" element={<PatientProfile />} />
                 <Route path="/labs" element={<LabDiagnostics />} />
                 <Route path="/reports" element={<ReportAnalyzer />} />
                 <Route path="/chat" element={<Chatbot />} />
@@ -158,6 +173,9 @@ function AppContent() {
                 <Route path="/doctor/consultation" element={<ConsultationRoom />} />
                 <Route path="/doctor/consultation/:appointmentId" element={<ConsultationRoom />} />
                 <Route path="/doctor/appointments" element={<DoctorAppointments />} />
+                <Route path="/doctor/availability" element={<DoctorAvailability />} />
+                <Route path="/doctor/schedule" element={<DoctorAvailability />} />
+                <Route path="/doctor/profile" element={<DoctorProfile />} />
                 <Route path="/doctor/ai-insights" element={<AiInsights />} />
                 <Route path="/doctor/records" element={<DoctorHealthRecords />} />
                 <Route path="/doctor/prescribe" element={<PrescriptionGenerator />} />
@@ -167,12 +185,18 @@ function AppContent() {
                 <Route path="/pharmacy/dashboard" element={<PharmacyDashboard />} />
                 <Route path="/pharmacy/orders" element={<OrderProcessing />} />
                 <Route path="/pharmacy/inventory" element={<InventoryManagement />} />
+                <Route path="/pharmacy/inventory/batches" element={<BatchManagement />} />
+                <Route path="/pharmacy/batches" element={<BatchManagement />} />
+                <Route path="/pharmacy/profile" element={<PharmacyProfile />} />
 
                 {/* Super Admin Routes */}
                 <Route path="/admin" element={<Navigate to="/admin/dashboard" />} />
                 <Route path="/admin/dashboard" element={<AdminDashboard />} />
                 <Route path="/admin/doctor-approvals" element={<DoctorApprovals />} />
                 <Route path="/admin/pharmacy-approvals" element={<PharmacyApprovals />} />
+                <Route path="/admin/users" element={<UserManagement />} />
+                <Route path="/admin/settings" element={<SystemSettings />} />
+                <Route path="/admin/system-settings" element={<SystemSettings />} />
                 <Route path="/admin/audit-logs" element={<AuditLogs />} />
 
                 <Route path="*" element={getDefaultHome()} />
@@ -221,6 +245,8 @@ function RoleBasedLayout({ children }) {
       switchRole('doctor');
     } else if ((location.pathname === '/admin' || location.pathname.startsWith('/admin/')) && role !== 'admin') {
       switchRole('admin');
+    } else if (location.pathname.startsWith('/pharmacy/') && role !== 'pharmacy') {
+      switchRole('pharmacy');
     } else if (
       (location.pathname === '/predict' ||
        location.pathname === '/symptom-checker' ||
@@ -229,6 +255,10 @@ function RoleBasedLayout({ children }) {
        location.pathname === '/dashboard' ||
        location.pathname === '/prescriptions' ||
        location.pathname === '/pharmacy' ||
+       location.pathname === '/patient/orders' ||
+       location.pathname === '/orders' ||
+       location.pathname === '/patient/appointments' ||
+       location.pathname === '/patient/profile' ||
        location.pathname === '/labs' ||
        location.pathname === '/twin' ||
        location.pathname === '/records') && role !== 'patient'
@@ -243,6 +273,8 @@ function RoleBasedLayout({ children }) {
       return [
         { name: 'Doctor Dashboard', path: '/doctor/dashboard', icon: Stethoscope },
         { name: 'Patient Queue', path: '/doctor/appointments', icon: Calendar },
+        { name: 'Availability & Slots', path: '/doctor/availability', icon: Clock },
+        { name: 'Doctor Profile', path: '/doctor/profile', icon: UserCheck },
         { name: 'Issue Digital Rx', path: '/doctor/prescribe', icon: FilePlus2 },
         { name: 'Clinical AI Chat', path: '/chat', icon: MessageSquare },
         { name: 'Lab Reports', path: '/reports', icon: FileText },
@@ -253,15 +285,19 @@ function RoleBasedLayout({ children }) {
       return [
         { name: 'Pharmacy Dashboard', path: '/pharmacy/dashboard', icon: Store },
         { name: 'Prescription Orders', path: '/pharmacy/orders', icon: ShoppingBag },
-        { name: 'Drug Inventory', path: '/pharmacy/inventory', icon: Package }
+        { name: 'Drug Inventory', path: '/pharmacy/inventory', icon: Package },
+        { name: 'Batch & Expiry', path: '/pharmacy/inventory/batches', icon: Layers },
+        { name: 'Dispensary Profile', path: '/pharmacy/profile', icon: Settings }
       ];
     }
     if (role === 'admin') {
       return [
         { name: 'Admin Overview', path: '/admin/dashboard', icon: ShieldCheck },
-        { name: '12. Doctor Approvals', path: '/admin/doctor-approvals', icon: Stethoscope },
-        { name: '13. Pharmacy Approvals', path: '/admin/pharmacy-approvals', icon: Store },
-        { name: '9. Audit & Logging', path: '/admin/audit-logs', icon: FileText }
+        { name: 'User Governance', path: '/admin/users', icon: Users },
+        { name: 'Doctor Approvals', path: '/admin/doctor-approvals', icon: Stethoscope },
+        { name: 'Pharmacy Approvals', path: '/admin/pharmacy-approvals', icon: Store },
+        { name: 'Audit & Compliance', path: '/admin/audit-logs', icon: FileText },
+        { name: 'System Settings', path: '/admin/settings', icon: Settings }
       ];
     }
     // Default: Patient Menu
@@ -269,10 +305,13 @@ function RoleBasedLayout({ children }) {
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
       { name: '1. Symptom Checker', path: '/predict', icon: Activity },
       { name: '2. Consult Doctors', path: '/doctors', icon: Stethoscope },
+      { name: 'My Appointments', path: '/patient/appointments', icon: Calendar },
       { name: '4. Digital Rx', path: '/prescriptions', icon: FileText },
       { name: '5. Order Medicines', path: '/pharmacy', icon: Store },
+      { name: 'My Orders', path: '/patient/orders', icon: ShoppingBag },
       { name: 'Health Records', path: '/records', icon: FolderOpen },
       { name: 'Patient Twin', path: '/twin', icon: UserSquare2 },
+      { name: 'My Profile', path: '/patient/profile', icon: UserSquare2 },
       { name: 'Clinical Chatbot', path: '/chat', icon: MessageSquare },
       { name: 'Report Analyzer', path: '/reports', icon: FileText },
       { name: 'Trials Explorer', path: '/trials', icon: BookOpen },

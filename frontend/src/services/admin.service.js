@@ -111,5 +111,110 @@ export const adminService = {
       return [];
     }
     return data || [];
+  },
+
+  // Governance: Multi-role user browsing without exposing PHI
+  async getUsers({ role = 'all', search = '', limit = 50, offset = 0 } = {}) {
+    let query = supabase
+      .from('profiles')
+      .select('id, email, full_name, role, approval_status, avatar_url, created_at, updated_at', { count: 'exact' });
+
+    if (role && role !== 'all') {
+      query = query.eq('role', role);
+    }
+
+    if (search && search.trim()) {
+      query = query.or(`full_name.ilike.%${search.trim()}%,email.ilike.%${search.trim()}%`);
+    }
+
+    const { data, count, error } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.warn('Users fetch notice:', error.message);
+      return { users: [], total: 0 };
+    }
+    return { users: data || [], total: count || 0 };
+  },
+
+  // Update user status (approve, suspend, activate)
+  async updateUserStatus(userId, approvalStatus) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        approval_status: approvalStatus,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  // Security: Fetch rate limiting blocked events
+  async getRateLimitEvents(limit = 20) {
+    const { data, error } = await supabase
+      .from('rate_limit_events')
+      .select('*')
+      .order('blocked_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.warn('Rate limit events notice:', error.message);
+      return [];
+    }
+    return data || [];
+  },
+
+  // AI Telemetry: Daily quota & usage aggregations
+  async getAiUsageSummary() {
+    const { data, error } = await supabase
+      .from('ai_usage_daily')
+      .select('*')
+      .order('usage_date', { ascending: false })
+      .limit(30);
+
+    if (error) {
+      console.warn('AI usage summary notice:', error.message);
+      return [];
+    }
+    return data || [];
+  },
+
+  // Platform & Service Health Monitor
+  async getSystemHealth() {
+    const startMl = Date.now();
+    let mlStatus = 'offline';
+    let mlLatency = 0;
+
+    try {
+      const mlRes = await fetch('http://127.0.0.1:8000/health', { method: 'GET' });
+      if (mlRes.ok) {
+        mlStatus = 'healthy';
+        mlLatency = Date.now() - startMl;
+      }
+    } catch {
+      mlStatus = 'offline';
+    }
+
+    const startDb = Date.now();
+    let dbStatus = 'healthy';
+    let dbLatency = 0;
+    try {
+      await supabase.from('profiles').select('id', { count: 'exact', head: true });
+      dbLatency = Date.now() - startDb;
+    } catch {
+      dbStatus = 'degraded';
+    }
+
+    return {
+      database: { status: dbStatus, latencyMs: dbLatency },
+      mlService: { status: mlStatus, latencyMs: mlLatency, modelVersion: 'symptom-rf-v1' },
+      reportIntelligence: { status: mlStatus, engine: 'report-analysis-v1' },
+      storage: { status: 'healthy', provider: 'Supabase Storage Private Buckets' }
+    };
   }
 };

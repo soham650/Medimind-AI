@@ -53,13 +53,32 @@ export const mlApi = {
   },
 
   async analyzeReport(fileName, fileType, fileData) {
-    return await fetchFromML('/analyze', {
+    return await fetchFromML('/analyze_report', {
       method: 'POST',
       body: JSON.stringify({
         fileName,
         fileType,
         fileData,
       }),
+    });
+  },
+
+  async analyzeReportAndAssess(payload) {
+    if (payload instanceof FormData) {
+      const response = await fetch(`${ML_SERVICE_URL}/analyze_report_and_assess`, {
+        method: 'POST',
+        body: payload,
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Report assessment request failed.');
+      }
+      return await response.json();
+    }
+
+    return await fetchFromML('/analyze_report_and_assess', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   },
 

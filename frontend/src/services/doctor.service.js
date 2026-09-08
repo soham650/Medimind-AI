@@ -140,5 +140,103 @@ export const doctorService = {
         available_now: true
       }
     ];
+  },
+
+  // Get doctor profile
+  async getDoctorProfile(doctorId) {
+    const { data, error } = await supabase
+      .from('doctors')
+      .select('*')
+      .eq('id', doctorId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.warn('Doctor profile fetch notice:', error.message);
+    }
+    return data || null;
+  },
+
+  // Update doctor profile attributes
+  async updateDoctorProfile(doctorId, updates) {
+    const { id, created_at, verification_status, ...allowedUpdates } = updates;
+    const { data, error } = await supabase
+      .from('doctors')
+      .update({
+        ...allowedUpdates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', doctorId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  // Upload doctor verification documents to doctor-documents bucket
+  async uploadDoctorDocument(doctorId, file, documentType = 'Medical License') {
+    const fileExt = file.name.split('.').pop();
+    const filePath = `${doctorId}/${Date.now()}_${documentType.toLowerCase().replace(/\s+/g, '_')}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('doctor-documents')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) throw new Error(`Document upload failed: ${uploadError.message}`);
+
+    // Record submission in doctor_verifications
+    await supabase.from('doctor_verifications').insert({
+      doctor_id: doctorId,
+      submitted_documents: [{
+        type: documentType,
+        path: filePath,
+        file_name: file.name,
+        uploaded_at: new Date().toISOString()
+      }],
+      status: 'pending'
+    });
+
+    return filePath;
+  },
+
+  // Get doctor weekly availability schedule
+  async getDoctorSchedule(doctorId) {
+    const { data, error } = await supabase
+      .from('doctor_availability')
+      .select('*')
+      .eq('doctor_id', doctorId)
+      .order('day_of_week', { ascending: true });
+
+    if (error) {
+      console.warn('Doctor schedule fetch notice:', error.message);
+      return [];
+    }
+    return data || [];
+  },
+
+  // Save/replace doctor availability schedule
+  async saveDoctorSchedule(doctorId, scheduleSlots) {
+    // Delete existing and insert new
+    await supabase.from('doctor_availability').delete().eq('doctor_id', doctorId);
+
+    if (scheduleSlots && scheduleSlots.length > 0) {
+      const rows = scheduleSlots.map(slot => ({
+        doctor_id: doctorId,
+        day_of_week: slot.day_of_week,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        slot_duration_minutes: slot.slot_duration_minutes || 30,
+        is_active: slot.is_active ?? true
+      }));
+
+      const { data, error } = await supabase
+        .from('doctor_availability')
+        .insert(rows)
+        .select();
+
+      if (error) throw new Error(error.message);
+      return data;
+    }
+    return [];
   }
 };

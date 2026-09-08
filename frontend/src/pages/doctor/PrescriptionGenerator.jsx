@@ -1,11 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 import { prescriptionService } from '../../services/prescriptionService';
-import { FilePlus2, Plus, Trash2, CheckCircle2, ShieldCheck, Printer } from 'lucide-react';
+import { appointmentService } from '../../services';
+import { FilePlus2, Plus, Trash2, CheckCircle2, ShieldCheck, Printer, User, AlertCircle } from 'lucide-react';
 
 export default function PrescriptionGenerator() {
   const { profile } = useAuth();
-  const [patientEmailOrName, setPatientEmailOrName] = useState('');
+  const [searchParams] = useSearchParams();
+  const paramPatientId = searchParams.get('patientId');
+  const paramAppointmentId = searchParams.get('appointmentId');
+
+  const [authorizedPatients, setAuthorizedPatients] = useState([]);
+  const [selectedPatientId, setSelectedPatientId] = useState(paramPatientId || '');
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState(paramAppointmentId || '');
+  const [loadingPatients, setLoadingPatients] = useState(false);
+
   const [diagnosis, setDiagnosis] = useState('');
   const [generalAdvice, setGeneralAdvice] = useState('');
   const [medicines, setMedicines] = useState([
@@ -13,6 +23,43 @@ export default function PrescriptionGenerator() {
   ]);
   const [createdRx, setCreatedRx] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Load authorized patients from doctor appointments
+  useEffect(() => {
+    async function loadDoctorPatients() {
+      if (!profile?.id) return;
+      setLoadingPatients(true);
+      try {
+        const appts = await appointmentService.getDoctorAppointments(profile.id);
+        const patientsMap = new Map();
+        appts.forEach(a => {
+          if (a.patient && a.patient.id) {
+            patientsMap.set(a.patient.id, {
+              id: a.patient.id,
+              name: a.patient.full_name || 'Authorized Patient',
+              phone: a.patient.phone || 'N/A',
+              abha: a.patient.abha_id || 'N/A',
+              appointmentId: a.id
+            });
+          }
+        });
+        const list = Array.from(patientsMap.values());
+        setAuthorizedPatients(list);
+
+        if (paramPatientId) {
+          setSelectedPatientId(paramPatientId);
+        } else if (list.length > 0 && !selectedPatientId) {
+          setSelectedPatientId(list[0].id);
+          setSelectedAppointmentId(list[0].appointmentId || '');
+        }
+      } catch (err) {
+        console.warn('Notice loading doctor patients:', err);
+      } finally {
+        setLoadingPatients(false);
+      }
+    }
+    loadDoctorPatients();
+  }, [profile?.id, paramPatientId]);
 
   const addMedicine = () => {
     setMedicines(prev => [
@@ -35,24 +82,28 @@ export default function PrescriptionGenerator() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!selectedPatientId) {
+      alert('Please select an authorized patient recipient for this digital prescription.');
+      return;
+    }
     if (!diagnosis || medicines.some(m => !m.name.trim())) {
-      alert('Please provide a clinical diagnosis and fill in medicine names.');
+      alert('Please provide a clinical diagnosis and fill in all prescribed medicine names.');
       return;
     }
 
     setSubmitting(true);
     try {
-      // In production, patientId is selected from appointments or user search
-      const simulatedRx = await prescriptionService.createPrescription({
+      const generatedRx = await prescriptionService.createPrescription({
         doctorId: profile.id,
-        patientId: profile.id, // Fallback demo target
+        patientId: selectedPatientId,
+        consultationId: selectedAppointmentId || null,
         diagnosis,
         medicines,
         generalAdvice
       });
-      setCreatedRx(simulatedRx);
+      setCreatedRx(generatedRx);
     } catch (err) {
-      alert('Failed to generate Rx: ' + err.message);
+      alert('Failed to generate prescription: ' + err.message);
     } finally {
       setSubmitting(false);
     }
@@ -171,15 +222,41 @@ export default function PrescriptionGenerator() {
         <form onSubmit={handleSubmit} style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '28px' }}>
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
-              Patient Identifier / Search
+              Authorized Patient Recipient *
             </label>
-            <input
-              type="text"
-              placeholder="e.g. John Doe (Patient ID: P-8821)"
-              value={patientEmailOrName}
-              onChange={(e) => setPatientEmailOrName(e.target.value)}
-              style={{ width: '100%', height: '42px', padding: '0 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
-            />
+            {authorizedPatients.length > 0 ? (
+              <select
+                value={selectedPatientId}
+                onChange={(e) => {
+                  setSelectedPatientId(e.target.value);
+                  const matched = authorizedPatients.find(p => p.id === e.target.value);
+                  if (matched) setSelectedAppointmentId(matched.appointmentId || '');
+                }}
+                required
+                style={{ width: '100%', height: '42px', padding: '0 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', fontWeight: '600' }}
+              >
+                <option value="">-- Select Active Consultation Patient --</option>
+                {authorizedPatients.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} (ABHA: {p.abha} | Phone: {p.phone})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                placeholder="Enter Patient UUID (e.g. from Appointment or Patient Access Bridge)"
+                value={selectedPatientId}
+                onChange={(e) => setSelectedPatientId(e.target.value)}
+                required
+                style={{ width: '100%', height: '42px', padding: '0 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+              />
+            )}
+            {selectedAppointmentId && (
+              <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '6px', fontWeight: '600' }}>
+                ✓ Linked to Appointment: {selectedAppointmentId}
+              </p>
+            )}
           </div>
 
           <div style={{ marginBottom: '20px' }}>

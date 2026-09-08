@@ -37,8 +37,12 @@ export const aiService = {
       await supabase.from('symptom_assessments').insert({
         patient_id: patientId,
         symptoms,
+        normalized_symptoms: predictionResult?.normalized_symptoms || symptoms.map(s => s.toLowerCase().trim().replace(/\s+/g, '_')),
+        model_version: predictionResult?.model_version || 'symptom-rf-v1',
         possible_conditions: predictionResult?.top_predictions || [],
         risk_level: riskLevel,
+        risk_reasons: predictionResult?.risk_assessment?.reasons || [],
+        red_flags: predictionResult?.risk_assessment?.red_flags || [],
         ai_summary: aiSummary,
         recommended_action: recommendedAction,
         disclaimer

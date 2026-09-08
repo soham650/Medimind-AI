@@ -1,0 +1,451 @@
+{
+  "(vertigo) Paroymsal  Positional Vertigo": {
+    "disease": "(vertigo) Paroymsal  Positional Vertigo",
+    "description": "(Vertigo) Paroxysmal Positional Vertigo is a type of dizziness caused by specific head movements.",
+    "precautions": [
+      "Lie down",
+      "Avoid sudden change in body",
+      "Avoid abrupt head movment",
+      "Relax"
+    ],
+    "specialist": "ENT Specialist / Neurologist"
+  },
+  "AIDS": {
+    "disease": "AIDS",
+    "description": "AIDS (Acquired Immunodeficiency Syndrome) is a disease caused by HIV that weakens the immune system.",
+    "precautions": [
+      "Avoid open cuts",
+      "Wear ppe if possible",
+      "Consult doctor",
+      "Follow up"
+    ],
+    "specialist": "Infectious Disease Specialist"
+  },
+  "Acne": {
+    "disease": "Acne",
+    "description": "Acne is a skin condition that occurs when hair follicles become clogged with oil and dead skin cells.",
+    "precautions": [
+      "Bath twice",
+      "Avoid fatty spicy food",
+      "Drink plenty of water",
+      "Avoid too many products"
+    ],
+    "specialist": "Dermatologist"
+  },
+  "Alcoholic hepatitis": {
+    "disease": "Alcoholic hepatitis",
+    "description": "Alcoholic hepatitis is inflammation of the liver due to alcohol consumption.",
+    "precautions": [
+      "Stop alcohol consumption",
+      "Consult doctor",
+      "Medication",
+      "Follow up"
+    ],
+    "specialist": "Hepatologist / Addiction Specialist"
+  },
+  "Allergy": {
+    "disease": "Allergy",
+    "description": "Allergy is an immune system reaction to a substance in the environment.",
+    "precautions": [
+      "Apply calamine",
+      "Cover area with bandage",
+      "Use ice to compress itching"
+    ],
+    "specialist": "Allergist / Immunologist"
+  },
+  "Arthritis": {
+    "disease": "Arthritis",
+    "description": "Arthritis is inflammation of one or more joints, causing pain and stiffness.",
+    "precautions": [
+      "Exercise",
+      "Use hot and cold therapy",
+      "Try acupuncture",
+      "Massage"
+    ],
+    "specialist": "Rheumatologist"
+  },
+  "Bronchial Asthma": {
+    "disease": "Bronchial Asthma",
+    "description": "Bronchial Asthma is a respiratory condition characterized by inflammation of the airways.",
+    "precautions": [
+      "Switch to loose cloothing",
+      "Take deep breaths",
+      "Get away from trigger",
+      "Seek help"
+    ],
+    "specialist": "Pulmonologist"
+  },
+  "Cervical spondylosis": {
+    "disease": "Cervical spondylosis",
+    "description": "Cervical spondylosis is a degenerative condition of the cervical spine.",
+    "precautions": [
+      "Use heating pad or cold pack",
+      "Exercise",
+      "Take otc pain reliver",
+      "Consult doctor"
+    ],
+    "specialist": "Orthopedic Specialist / Neurologist"
+  },
+  "Chicken pox": {
+    "disease": "Chicken pox",
+    "description": "Chicken pox is a highly contagious viral infection causing an itchy rash.",
+    "precautions": [
+      "Use neem in bathing",
+      "Consume neem leaves",
+      "Take vaccine",
+      "Avoid public places"
+    ],
+    "specialist": "Pediatrician / General Physician"
+  },
+  "Chronic cholestasis": {
+    "disease": "Chronic cholestasis",
+    "description": "Chronic cholestasis is a condition where bile flow from the liver is reduced for a prolonged period.",
+    "precautions": [
+      "Cold baths",
+      "Anti itch medicine",
+      "Consult doctor",
+      "Eat healthy"
+    ],
+    "specialist": "Hepatologist / Gastroenterologist"
+  },
+  "Common Cold": {
+    "disease": "Common Cold",
+    "description": "Common Cold is a viral infection of the upper respiratory tract.",
+    "precautions": [
+      "Drink vitamin c rich drinks",
+      "Take vapour",
+      "Avoid cold food",
+      "Keep fever in check"
+    ],
+    "specialist": "General Physician"
+  },
+  "Dengue": {
+    "disease": "Dengue",
+    "description": "Dengue is a mosquito-borne viral infection causing flu-like symptoms.",
+    "precautions": [
+      "Drink papaya leaf juice",
+      "Avoid fatty spicy food",
+      "Keep mosquitos away",
+      "Keep hydrated"
+    ],
+    "specialist": "Infectious Disease Specialist / General Physician"
+  },
+  "Diabetes": {
+    "disease": "Diabetes",
+    "description": "Diabetes is a chronic condition that affects how the body processes blood sugar.",
+    "precautions": [
+      "Have balanced diet",
+      "Exercise",
+      "Consult doctor",
+      "Follow up"
+    ],
+    "specialist": "Endocrinologist"
+  },
+  "Dimorphic hemmorhoids(piles)": {
+    "disease": "Dimorphic hemmorhoids(piles)",
+    "description": "Dimorphic hemmorhoids(piles) is a condition characterized by swollen blood vessels in the rectum.",
+    "precautions": [
+      "Avoid fatty spicy food",
+      "Consume witch hazel",
+      "Warm bath with epsom salt",
+      "Consume alovera juice"
+    ],
+    "specialist": "General Surgeon / Proctologist"
+  },
+  "Drug Reaction": {
+    "disease": "Drug Reaction",
+    "description": "Drug Reaction occurs when the body reacts adversely to a medication.",
+    "precautions": [
+      "Stop irritation",
+      "Consult nearest hospital",
+      "Stop taking drug",
+      "Follow up"
+    ],
+    "specialist": "Allergist / Dermatologist"
+  },
+  "Fungal infection": {
+    "disease": "Fungal infection",
+    "description": "Fungal infection is a common skin condition caused by fungi.",
+    "precautions": [
+      "Bath twice",
+      "Use detol or neem in bathing water",
+      "Keep infected area dry",
+      "Use clean cloths"
+    ],
+    "specialist": "Dermatologist"
+  },
+  "GERD": {
+    "disease": "GERD",
+    "description": "GERD (Gastroesophageal Reflux Disease) is a digestive disorder that affects the lower esophageal sphincter.",
+    "precautions": [
+      "Avoid fatty spicy food",
+      "Avoid lying down after eating",
+      "Maintain healthy weight",
+      "Exercise"
+    ],
+    "specialist": "Gastroenterologist"
+  },
+  "Gastroenteritis": {
+    "disease": "Gastroenteritis",
+    "description": "Gastroenteritis is an inflammation of the stomach and intestines, typically caused by a virus or bacteria.",
+    "precautions": [
+      "Stop eating solid food for while",
+      "Try taking small sips of water",
+      "Rest",
+      "Ease back into eating"
+    ],
+    "specialist": "General Physician / Gastroenterologist"
+  },
+  "Heart attack": {
+    "disease": "Heart attack",
+    "description": "Heart attack is a sudden and severe reduction in blood flow to the heart muscle.",
+    "precautions": [
+      "Call ambulance",
+      "Chew or swallow asprin",
+      "Keep calm"
+    ],
+    "specialist": "Cardiologist / Emergency Medicine"
+  },
+  "Hepatitis B": {
+    "disease": "Hepatitis B",
+    "description": "Hepatitis B is a viral infection that attacks the liver.",
+    "precautions": [
+      "Consult nearest hospital",
+      "Vaccination",
+      "Eat healthy",
+      "Medication"
+    ],
+    "specialist": "Hepatologist"
+  },
+  "Hepatitis C": {
+    "disease": "Hepatitis C",
+    "description": "Hepatitis C is a viral infection that causes liver inflammation.",
+    "precautions": [
+      "Consult nearest hospital",
+      "Vaccination",
+      "Eat healthy",
+      "Medication"
+    ],
+    "specialist": "Hepatologist"
+  },
+  "Hepatitis D": {
+    "disease": "Hepatitis D",
+    "description": "Hepatitis D is a serious liver disease caused by the hepatitis D virus.",
+    "precautions": [
+      "Consult doctor",
+      "Medication",
+      "Eat healthy",
+      "Follow up"
+    ],
+    "specialist": "Hepatologist"
+  },
+  "Hepatitis E": {
+    "disease": "Hepatitis E",
+    "description": "Hepatitis E is a viral infection that causes liver inflammation.",
+    "precautions": [
+      "Stop alcohol consumption",
+      "Rest",
+      "Consult doctor",
+      "Medication"
+    ],
+    "specialist": "Hepatologist"
+  },
+  "Hypertension": {
+    "disease": "Hypertension",
+    "description": "Hypertension, or high blood pressure, is a common cardiovascular condition.",
+    "precautions": [
+      "Meditation",
+      "Salt baths",
+      "Reduce stress",
+      "Get proper sleep"
+    ],
+    "specialist": "Cardiologist"
+  },
+  "Hyperthyroidism": {
+    "disease": "Hyperthyroidism",
+    "description": "Hyperthyroidism is a condition where the thyroid gland produces too much thyroid hormone.",
+    "precautions": [
+      "Eat healthy",
+      "Massage",
+      "Use lemon balm",
+      "Take radioactive iodine treatment"
+    ],
+    "specialist": "Endocrinologist"
+  },
+  "Hypoglycemia": {
+    "disease": "Hypoglycemia",
+    "description": "Hypoglycemia is a condition characterized by abnormally low blood sugar levels.",
+    "precautions": [
+      "Lie down on side",
+      "Check in pulse",
+      "Drink sugary drinks",
+      "Consult doctor"
+    ],
+    "specialist": "Endocrinologist / General Physician"
+  },
+  "Hypothyroidism": {
+    "disease": "Hypothyroidism",
+    "description": "Hypothyroidism is a condition where the thyroid gland doesn't produce enough thyroid hormone.",
+    "precautions": [
+      "Reduce stress",
+      "Exercise",
+      "Eat healthy",
+      "Get proper sleep"
+    ],
+    "specialist": "Endocrinologist"
+  },
+  "Impetigo": {
+    "disease": "Impetigo",
+    "description": "Impetigo is a highly contagious skin infection causing red sores that can break open.",
+    "precautions": [
+      "Soak affected area in warm water",
+      "Use antibiotics",
+      "Remove scabs with wet compressed cloth",
+      "Consult doctor"
+    ],
+    "specialist": "Dermatologist / Pediatrician"
+  },
+  "Jaundice": {
+    "disease": "Jaundice",
+    "description": "Jaundice is a yellow discoloration of the skin and eyes, often indicating liver problems.",
+    "precautions": [
+      "Drink plenty of water",
+      "Consume milk thistle",
+      "Eat fruits and high fiberous food",
+      "Medication"
+    ],
+    "specialist": "Hepatologist / Gastroenterologist"
+  },
+  "Malaria": {
+    "disease": "Malaria",
+    "description": "Malaria is a mosquito-borne infectious disease affecting humans and other animals.",
+    "precautions": [
+      "Consult nearest hospital",
+      "Avoid oily food",
+      "Avoid non veg food",
+      "Keep mosquitos out"
+    ],
+    "specialist": "Infectious Disease Specialist / General Physician"
+  },
+  "Migraine": {
+    "disease": "Migraine",
+    "description": "Migraine is a type of headache that often involves severe pain and sensitivity to light and sound.",
+    "precautions": [
+      "Meditation",
+      "Reduce stress",
+      "Use poloroid glasses in sun",
+      "Consult doctor"
+    ],
+    "specialist": "Neurologist"
+  },
+  "Osteoarthristis": {
+    "disease": "Osteoarthristis",
+    "description": "Osteoarthristis is a degenerative joint disease that affects the cartilage in joints.",
+    "precautions": [
+      "Acetaminophen",
+      "Consult nearest hospital",
+      "Follow up",
+      "Salt baths"
+    ],
+    "specialist": "Orthopedic Specialist / Rheumatologist"
+  },
+  "Paralysis (brain hemorrhage)": {
+    "disease": "Paralysis (brain hemorrhage)",
+    "description": "Paralysis (brain hemorrhage) refers to the loss of muscle function due to bleeding in the brain.",
+    "precautions": [
+      "Massage",
+      "Eat healthy",
+      "Exercise",
+      "Consult doctor"
+    ],
+    "specialist": "Neurologist / Emergency Medicine"
+  },
+  "Peptic ulcer diseae": {
+    "disease": "Peptic ulcer diseae",
+    "description": "Peptic ulcer disease involves sores that develop on the inner lining of the stomach and small intestine.",
+    "precautions": [
+      "Avoid fatty spicy food",
+      "Consume probiotic food",
+      "Eliminate milk",
+      "Limit alcohol"
+    ],
+    "specialist": "Gastroenterologist"
+  },
+  "Pneumonia": {
+    "disease": "Pneumonia",
+    "description": "Pneumonia is an inflammatory condition affecting the air sacs in the lungs.",
+    "precautions": [
+      "Consult doctor",
+      "Medication",
+      "Rest",
+      "Follow up"
+    ],
+    "specialist": "Pulmonologist"
+  },
+  "Psoriasis": {
+    "disease": "Psoriasis",
+    "description": "Psoriasis is a chronic skin condition characterized by red, itchy, and scaly patches.",
+    "precautions": [
+      "Wash hands with warm soapy water",
+      "Stop bleeding using pressure",
+      "Consult doctor",
+      "Salt baths"
+    ],
+    "specialist": "Dermatologist"
+  },
+  "Tuberculosis": {
+    "disease": "Tuberculosis",
+    "description": "Tuberculosis is a bacterial infection that primarily affects the lungs.",
+    "precautions": [
+      "Cover mouth",
+      "Consult doctor",
+      "Medication",
+      "Rest"
+    ],
+    "specialist": "Pulmonologist / Infectious Disease Specialist"
+  },
+  "Typhoid": {
+    "disease": "Typhoid",
+    "description": "Typhoid is a bacterial infection that can lead to a high fever and gastrointestinal symptoms.",
+    "precautions": [
+      "Eat high calorie vegitables",
+      "Antiboitic therapy",
+      "Consult doctor",
+      "Medication"
+    ],
+    "specialist": "General Physician / Infectious Disease Specialist"
+  },
+  "Urinary tract infection": {
+    "disease": "Urinary tract infection",
+    "description": "Urinary tract infection is an infection in any part of the urinary system.",
+    "precautions": [
+      "Drink plenty of water",
+      "Increase vitamin c intake",
+      "Drink cranberry juice",
+      "Take probiotics"
+    ],
+    "specialist": "Urologist / Nephrologist"
+  },
+  "Varicose veins": {
+    "disease": "Varicose veins",
+    "description": "Varicose veins are enlarged, twisted veins that usually appear on the legs.",
+    "precautions": [
+      "Lie down flat and raise the leg high",
+      "Use oinments",
+      "Use vein compression",
+      "Dont stand still for long"
+    ],
+    "specialist": "Vascular Surgeon"
+  },
+  "hepatitis A": {
+    "disease": "hepatitis A",
+    "description": "hepatitis A is a viral liver disease.",
+    "precautions": [
+      "Consult nearest hospital",
+      "Wash hands through",
+      "Avoid fatty spicy food",
+      "Medication"
+    ],
+    "specialist": "Hepatologist / Gastroenterologist"
+  }
+}

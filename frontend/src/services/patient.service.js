@@ -103,5 +103,73 @@ export const patientService = {
         vitals: { bp_systolic: 120, bp_diastolic: 80, blood_sugar: 100, bmi: 22.0, is_smoker: false }
       };
     }
+  },
+
+  // Fetch patient allergies
+  async getAllergies(patientId) {
+    const { data, error } = await supabase
+      .from('patient_allergies')
+      .select('*')
+      .eq('patient_id', patientId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Allergies fetch notice:', error.message);
+      return [];
+    }
+    return data || [];
+  },
+
+  // Add an allergy record
+  async addAllergy(patientId, { allergen, allergenType = 'Medication', severity = 'Moderate', reactionNotes = '' }) {
+    const { data, error } = await supabase
+      .from('patient_allergies')
+      .insert({
+        patient_id: patientId,
+        allergen,
+        allergen_type: allergenType,
+        severity,
+        reaction_notes: reactionNotes
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  // Remove an allergy record
+  async removeAllergy(allergyId) {
+    const { error } = await supabase
+      .from('patient_allergies')
+      .delete()
+      .eq('id', allergyId);
+
+    if (error) throw new Error(error.message);
+    return true;
+  },
+
+  // Upload user avatar to profile-images public bucket
+  async uploadAvatar(userId, file) {
+    const fileExt = file.name.split('.').pop();
+    const filePath = `${userId}/avatar_${Date.now()}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('profile-images')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) throw new Error(`Avatar upload failed: ${uploadError.message}`);
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('profile-images')
+      .getPublicUrl(filePath);
+
+    // Update profiles table
+    await supabase
+      .from('profiles')
+      .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
+      .eq('id', userId);
+
+    return publicUrl;
   }
 };
