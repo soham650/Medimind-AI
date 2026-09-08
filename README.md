@@ -31,10 +31,16 @@
 * **AI Clinical Insights:** Multi-layer machine learning models (NLP symptom engine, risk assessment models, and disease correlation).
 * **Patient Electronic Health Records (EHR):** Longitudinal lab biomarker trend charts (cholesterol, glucose, lipid profiles).
 
-### 3. 🛡️ Super Admin Portal (Platform Governance)
+### 3. 💊 Pharmacy Portal & Multi-Batch Inventory Suite
+* **Real-time Inventory & Dispensing:** Live medicine stock tracking with low-stock alerts and order processing.
+* **Deterministic FEFO/FIFO Batch Management:** Multi-batch inventory tracking with automated FEFO (First-Expired, First-Out) sequential consumption preventing batch stock collisions.
+* **Prescription Verification & Order Processing:** Validation of doctor digital prescriptions and fulfillment workflows.
+
+### 4. 🛡️ Super Admin Portal (Platform Governance)
 * **Doctor Credentialing Gate:** Verification of medical council registration numbers, university degrees, and clinical credentials before granting practice privileges.
 * **Pharmacy Licensing Gate:** Verification of state drug control permits and pharmacy retail licenses.
 * **Audit & Compliance Trail:** Tamper-evident logging of all prescription generation, patient record access, and admin credentialing actions.
+* **User & System Governance:** Dynamic user role management and platform configuration controls.
 
 ---
 
@@ -180,7 +186,27 @@ docker-compose up --build
 MediMind AI provides seamless 1-click role switching in test mode via the left sidebar footer:
 * **Patient Disease Predictor & Portal:** [http://localhost:3000/predict](http://localhost:3000/predict)
 * **Doctor Clinical Intel Suite:** [http://localhost:3000/doctor/dashboard](http://localhost:3000/doctor/dashboard)
+* **Pharmacy Portal & Inventory:** [http://localhost:3000/pharmacy/dashboard](http://localhost:3000/pharmacy/dashboard)
 * **Super Admin Governance Portal:** [http://localhost:3000/admin/dashboard](http://localhost:3000/admin/dashboard)
+
+---
+
+## 🗄️ Supabase Production Database & Live Verification
+
+The backend is backed by a fully hardened Supabase PostgreSQL instance:
+* **Schema Definition:** `supabase/complete_database_schema_and_migrations.sql` (44 core tables, partial unique index `uq_appointment_slot`, triggers, and hardened RPCs).
+* **Production Remediation Patch:** `supabase/migrations/0009_production_issue_remediation.sql` (implements row-locked deterministic FEFO batch allocation in `create_medicine_order_tx` and doctor access bridge RLS policy).
+* **Storage Buckets:** 4 provisioned buckets (`medical-documents`, `doctor-documents`, `pharmacy-documents`, `profile-images`) with MIME type whitelist enforcement and private access protection.
+
+### Running Live Verification & Regression Suites
+```bash
+# Run comprehensive live database audit (44 tables, RLS, storage, RPC security)
+node scripts/verify_live_database.js
+
+# Run 11-point live regression suite on inventory FEFO and doctor access RLS
+node scripts/verify_remediation_0009.js
+```
+*Current Verdict:* **LIVE VERIFICATION PASSED (11/11 Regression Tests Passing)**. See full report at [`docs/LIVE_SUPABASE_VERIFICATION_REPORT.md`](docs/LIVE_SUPABASE_VERIFICATION_REPORT.md).
 
 ---
 
