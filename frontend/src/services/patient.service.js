@@ -58,40 +58,79 @@ export const patientService = {
     return data;
   },
 
+  // Update patient settings (language, timezone, preferences)
+  async updateSettings(patientId, settings) {
+    const { preferred_language, timezone } = settings;
+    const updates = {};
+    if (preferred_language) updates.preferred_language = preferred_language;
+    if (timezone) updates.timezone = timezone;
+    updates.updated_at = new Date().toISOString();
+
+    const [patientRes, profileRes] = await Promise.all([
+      supabase.from('patients').update(updates).eq('id', patientId).select().single(),
+      supabase.from('profiles').update(updates).eq('id', patientId)
+    ]);
+
+    if (patientRes.error) throw new Error(patientRes.error.message);
+    return patientRes.data;
+  },
+
   // Real aggregate summary for Patient Dashboard
   async getDashboardSummary(patientId) {
     try {
-      const [apptsRes, rxRes, ordersRes, vitalsRes] = await Promise.all([
+      const today = new Date().toISOString().split('T')[0];
+      const [apptsRes, rxRes, ordersRes, vitalsRes, assessRes, reportsRes, notifsRes] = await Promise.all([
         supabase
           .from('appointments')
-          .select('id, appointment_number, appointment_date, time_slot, consultation_type, status, doctor_id, doctors(full_name, specialization, clinic_name)')
+          .select('id, appointment_number, appointment_date, time_slot, consultation_type, status, doctor_id, doctor:doctor_id(full_name, specialization, clinic_name)')
           .eq('patient_id', patientId)
-          .gte('appointment_date', new Date().toISOString().split('T')[0])
+          .gte('appointment_date', today)
           .order('appointment_date', { ascending: true })
           .limit(5),
         supabase
           .from('prescriptions')
-          .select('id, rx_id, diagnosis, created_at, doctors(full_name, specialization)')
+          .select('id, rx_id, diagnosis, created_at, doctor:doctor_id(full_name, specialization)')
           .eq('patient_id', patientId)
           .order('created_at', { ascending: false })
           .limit(5),
         supabase
           .from('medicine_orders')
-          .select('id, order_number, total_amount, order_status, created_at')
+          .select('id, order_number, total_amount, order_status, created_at, pharmacy:pharmacy_id(pharmacy_name)')
           .eq('patient_id', patientId)
           .order('created_at', { ascending: false })
           .limit(5),
         supabase
           .from('patients')
-          .select('bp_systolic, bp_diastolic, blood_sugar, bmi, is_smoker')
+          .select('bp_systolic, bp_diastolic, blood_sugar, bmi, is_smoker, full_name, preferred_language')
           .eq('id', patientId)
-          .single()
+          .single(),
+        supabase
+          .from('symptom_assessments')
+          .select('id, symptoms, risk_level, possible_conditions, ai_summary, recommended_action, created_at')
+          .eq('patient_id', patientId)
+          .order('created_at', { ascending: false })
+          .limit(3),
+        supabase
+          .from('health_reports')
+          .select('id, report_title, report_type, processing_status, created_at')
+          .eq('patient_id', patientId)
+          .order('created_at', { ascending: false })
+          .limit(3),
+        supabase
+          .from('notifications')
+          .select('id, title, message, is_read, type, created_at')
+          .eq('user_id', patientId)
+          .order('created_at', { ascending: false })
+          .limit(5)
       ]);
 
       return {
         upcomingAppointments: apptsRes.data || [],
         recentPrescriptions: rxRes.data || [],
         recentOrders: ordersRes.data || [],
+        recentAssessments: assessRes.data || [],
+        recentReports: reportsRes.data || [],
+        notifications: notifsRes.data || [],
         vitals: vitalsRes.data || { bp_systolic: 120, bp_diastolic: 80, blood_sugar: 100, bmi: 22.0, is_smoker: false }
       };
     } catch (err) {
@@ -100,6 +139,9 @@ export const patientService = {
         upcomingAppointments: [],
         recentPrescriptions: [],
         recentOrders: [],
+        recentAssessments: [],
+        recentReports: [],
+        notifications: [],
         vitals: { bp_systolic: 120, bp_diastolic: 80, blood_sugar: 100, bmi: 22.0, is_smoker: false }
       };
     }

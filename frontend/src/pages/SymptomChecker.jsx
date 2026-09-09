@@ -25,16 +25,16 @@ export default function SymptomChecker() {
   // STATE: Step 1 Symptoms (Quick Badges + Custom Added Tags)
   // --------------------------------------------------------------------------
   const [symptomSearchInput, setSymptomSearchInput] = useState('');
-  const [customTags, setCustomTags] = useState(['Throbbing temple', 'Mild shivering']);
+  const [customTags, setCustomTags] = useState([]);
 
   const [quickBadges, setQuickBadges] = useState([
-    { id: 'headache', name: 'Headache / Forehead Pain', emoji: '🤕', selected: true },
+    { id: 'headache', name: 'Headache / Forehead Pain', emoji: '🤕', selected: false },
     { id: 'fever', name: 'Fever & Warmth', emoji: '🤒', selected: false },
     { id: 'cough', name: 'Cough & Sneezing', emoji: '😷', selected: false },
-    { id: 'stomach', name: 'Upset Stomach / Nausea', emoji: '🤢', selected: true },
+    { id: 'stomach', name: 'Upset Stomach / Nausea', emoji: '🤢', selected: false },
     { id: 'fatigue', name: 'Tiredness & Low Energy', emoji: '🥱', selected: false },
     { id: 'throat', name: 'Scratchy Throat', emoji: '🤧', selected: false },
-    { id: 'light', name: 'Light Sensitivity', emoji: '👀', selected: true },
+    { id: 'light', name: 'Light Sensitivity', emoji: '👀', selected: false },
     { id: 'ear', name: 'Ear Discomfort', emoji: '👂', selected: false },
   ]);
 
@@ -42,51 +42,24 @@ export default function SymptomChecker() {
   // STATE: Step 2 Pain Level & Onset
   // --------------------------------------------------------------------------
   const [painLevel, setPainLevel] = useState('moderate'); // 'mild' | 'moderate' | 'severe'
-  const [onset, setOnset] = useState('Yesterday'); // 'Started today ☀️' | 'Yesterday' | 'Past 2–3 days' | 'More than a week'
+  const [onset, setOnset] = useState('Started today ☀️'); // 'Started today ☀️' | 'Yesterday' | 'Past 2–3 days' | 'More than a week'
 
   // --------------------------------------------------------------------------
   // STATE: Step 3 Narrative / Details
   // --------------------------------------------------------------------------
-  const [narrative, setNarrative] = useState(
-    'Dull aching sensation behind the eyes, noticeably worse when reading or on the school tablet screen. Mild stomach queasiness since yesterday.'
-  );
+  const [narrative, setNarrative] = useState('');
 
   // --------------------------------------------------------------------------
   // STATE: Mode 2 Lab Slip Reader
   // --------------------------------------------------------------------------
-  const [attachedLabSlip, setAttachedLabSlip] = useState({
-    name: 'Pediatric_Routine_CBC_Report.pdf',
-    source: 'Apollo Diagnostics Pediatrics • Signed by Pathologist',
-    verified: true,
-    size: '1.4 MB'
-  });
+  const [attachedLabSlip, setAttachedLabSlip] = useState(null);
   const [isUploadingSlip, setIsUploadingSlip] = useState(false);
   const [slipModalOpen, setSlipModalOpen] = useState(false);
 
   // --------------------------------------------------------------------------
   // STATE: Predictions / Diagnosis Results (Right Column)
   // --------------------------------------------------------------------------
-  const [predictions, setPredictions] = useState({
-    primary: {
-      tag: 'Most Likely • #1',
-      code: 'Sinus & Upper Airway (ICD-10 J01.00)',
-      name: 'Sinus Congestion & Mild Infection',
-      probability: 84,
-      why: 'Frontal headache behind the eyes combined with elevated white blood cells (WBC) indicates mild sinus inflammation. Typically resolves with hydration, warm steam, and adequate rest.'
-    },
-    secondary: {
-      tag: 'Also Contributing • #2',
-      code: 'Tension / Eye Strain (ICD-10 G44.2)',
-      name: 'Digital Eye Strain & Fatigue',
-      probability: 61,
-      why: 'Extended exposure to school laptops and tablets increases frontal eye discomfort and light sensitivity. Screen breaks and dim lighting provide fast relief.'
-    },
-    triageAcuity: 'Routine Pediatric Checkup within 24 Hrs',
-    isEmergency: false,
-    triaScore: 'Not an Emergency',
-    triaSub: 'Rest at Home Today',
-    bodyText: "Your body is busy fighting a mild bug or head tension. You don't need the hospital emergency room right now, but a quick chat with our pediatric doctor today will help you feel better fast!"
-  });
+  const [predictions, setPredictions] = useState(null);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -526,14 +499,14 @@ export default function SymptomChecker() {
           <div className="h-7 w-px bg-outline-variant"></div>
           <div className="flex items-center gap-3 pl-1">
             <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary font-bold text-[12px]">
-              RS
+              {profile?.full_name ? profile.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : (user?.email ? user.email.charAt(0).toUpperCase() : 'PT')}
             </div>
             <div className="text-left">
               <div className="font-label-md text-label-md text-on-surface leading-none font-bold">
-                Rahul Sharma <span className="text-outline font-normal text-[11px]">(32Y)</span>
+                {profile?.full_name || user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'Patient')}
               </div>
               <div className="font-body-sm text-[11px] text-outline leading-tight mt-0.5">
-                ABHA: 91-2345-6789-0123
+                ABHA: {profile?.abha_id || profile?.abha_number || 'ABHA Active'}
               </div>
             </div>
           </div>
@@ -1125,8 +1098,26 @@ export default function SymptomChecker() {
           {/* ================= RIGHT COLUMN: PREDICTIONS & CARE GUIDANCE (5 cols) ================= */}
           <div className="xl:col-span-5 flex flex-col gap-6">
 
-            {/* Reassuring Acuity Badge Card */}
-            <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/30 relative overflow-hidden">
+            {!predictions ? (
+              <div className="bg-surface-container-lowest rounded-2xl p-8 shadow-sm border border-outline-variant/30 text-center flex flex-col items-center justify-center min-h-[420px]">
+                <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center text-3xl mb-4">
+                  🩺
+                </div>
+                <h3 className="font-headline-md text-[18px] font-bold text-on-surface mb-2">
+                  Awaiting Symptom Intake
+                </h3>
+                <p className="font-body-sm text-[13px] text-on-surface-variant max-w-sm leading-relaxed mb-6">
+                  Select your symptoms from the badges on the left or enter custom symptoms, then click <strong>"Run AI Symptom Analysis"</strong> to generate clinical triage guidance and specialist recommendations.
+                </p>
+                <div className="flex items-center gap-2 text-[11px] font-label-md text-outline">
+                  <span className="w-2 h-2 rounded-full bg-secondary"></span>
+                  Dual AI Multi-Engine (NLP + Random Forest Classifier)
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Reassuring Acuity Badge Card */}
+                <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/30 relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-1.5 bg-primary"></div>
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
@@ -1325,6 +1316,8 @@ export default function SymptomChecker() {
                 Note for Parents &amp; Guardians: Always check with a licensed healthcare provider before administering any fever or pain medication.
               </div>
             </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -1360,15 +1353,35 @@ export default function SymptomChecker() {
           <div className="flex items-center gap-3 shrink-0 w-full md:w-auto">
             <button 
               type="button"
-              onClick={() => { navigate('/doctors'); }}
+              onClick={() => { 
+                navigate('/doctors', {
+                  state: {
+                    recommendedSpecialty: 'Pediatrician',
+                    reportedSymptoms: [
+                      ...quickBadges.filter(b => b.selected).map(b => b.name),
+                      ...customTags
+                    ].join(', ')
+                  }
+                });
+              }}
               className="flex-1 md:flex-initial px-5 py-3 rounded-xl bg-[#e8edff] text-[#041b3c] font-label-md text-label-md hover:bg-[#d7e2ff] transition-all flex items-center justify-center gap-2 font-bold cursor-pointer shadow-sm"
             >
               <span className="material-symbols-outlined text-[18px] text-primary">calendar_month</span>
-              <span>Schedule Pediatrician Visit</span>
+              <span>Schedule Doctor Visit</span>
             </button>
             <button 
               type="button"
-              onClick={() => { navigate('/doctors'); }}
+              onClick={() => { 
+                navigate('/doctors', {
+                  state: {
+                    recommendedSpecialty: 'General Physician',
+                    reportedSymptoms: [
+                      ...quickBadges.filter(b => b.selected).map(b => b.name),
+                      ...customTags
+                    ].join(', ')
+                  }
+                });
+              }}
               className="flex-1 md:flex-initial px-6 py-3 rounded-xl bg-[#003d9b] text-white font-label-md text-label-md shadow-md hover:opacity-95 transition-all flex items-center justify-center gap-2 font-bold cursor-pointer"
             >
               <span className="material-symbols-outlined text-[18px]">call</span>

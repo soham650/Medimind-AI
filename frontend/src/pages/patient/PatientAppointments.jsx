@@ -75,7 +75,7 @@ export default function PatientAppointments() {
     }
   };
 
-  const isUpcoming = (status) => ['requested', 'confirmed', 'in_progress'].includes(status);
+  const isUpcoming = (status) => ['scheduled', 'requested', 'confirmed', 'in_progress'].includes(status);
 
   const filteredAppointments = appointments.filter((appt) => {
     const matchesFilter =
@@ -94,6 +94,8 @@ export default function PatientAppointments() {
 
   const getStatusBadge = (status) => {
     switch (status) {
+      case 'scheduled':
+        return { bg: '#eff6ff', color: '#1d4ed8', label: 'Scheduled', icon: Clock };
       case 'confirmed':
         return { bg: '#dcfce7', color: '#15803d', label: 'Confirmed', icon: CheckCircle2 };
       case 'requested':

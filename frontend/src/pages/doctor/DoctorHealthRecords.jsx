@@ -1,781 +1,657 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams, useParams, Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { doctorService } from '../../services/doctor.service';
+import { medicalRecordsService } from '../../services/medical_records.service';
+import { reportService } from '../../services/report.service';
+import { supabase } from '../../lib/supabaseClient';
 import { 
+  FolderOpen, 
   FileText, 
-  Search, 
-  Bell, 
-  Download, 
-  Share2, 
-  CheckCircle2, 
-  AlertCircle, 
-  TrendingUp, 
-  Sparkles, 
+  Activity, 
+  User, 
   ShieldCheck, 
-  ExternalLink, 
   Lock, 
-  Filter, 
-  UploadCloud, 
-  RefreshCw,
-  Eye,
-  ChevronLeft,
-  ChevronRight,
-  Database
+  AlertTriangle, 
+  RefreshCw, 
+  ExternalLink, 
+  Search, 
+  Plus, 
+  Calendar,
+  CheckCircle2,
+  Share2,
+  Eye
 } from 'lucide-react';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 export default function DoctorHealthRecords() {
-  const [activeTab, setActiveTab] = useState('all');
-  const [selectedRecord, setSelectedRecord] = useState('lipid');
-  const [toastMessage, setToastMessage] = useState(null);
+  const { user, profile } = useAuth();
+  const doctorId = profile?.id || user?.id;
 
-  const longitudinalTrend = [
-    { date: 'May 2022', total: 265, ldl: 208, hdl: 39 },
-    { date: 'Nov 2022', total: 248, ldl: 192, hdl: 40 },
-    { date: 'Jun 2023', total: 235, ldl: 178, hdl: 42 },
-    { date: 'Jan 2024', total: 238, ldl: 172, hdl: 43 },
-    { date: 'Oct 2024', total: 242, ldl: 164, hdl: 44 }
-  ];
+  const [searchParams] = useSearchParams();
+  const { patientId: routePatientId } = useParams();
+  const requestedPatientId = routePatientId || searchParams.get('patientId');
+
+  const [authorizedPatients, setAuthorizedPatients] = useState([]);
+  const [selectedPatientId, setSelectedPatientId] = useState(requestedPatientId || '');
+  const [patientData, setPatientData] = useState(null);
+  const [records, setRecords] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [assessments, setAssessments] = useState([]);
+  const [allergies, setAllergies] = useState([]);
+  const [hasAccess, setHasAccess] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('records'); // 'records' | 'reports' | 'assessments'
+  const [newNoteModal, setNewNoteModal] = useState(false);
+  const [newNoteTitle, setNewNoteTitle] = useState('');
+  const [newNoteContent, setNewNoteContent] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
 
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  return (
-    <div style={{ background: '#f8fafc', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
-      
-      {/* Top Clinical Header Bar */}
-      <div style={{
-        background: '#ffffff',
-        borderBottom: '1px solid #e2e8f0',
-        padding: '12px 24px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '20px'
-      }}>
-        {/* Search */}
-        <div style={{ position: 'relative', flex: 1, maxWidth: '600px' }}>
-          <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-          <input 
-            type="text"
-            placeholder="Search patients, MRN, lab orders, or clinical protocols..."
-            style={{
-              width: '100%',
-              padding: '9px 12px 9px 36px',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              fontSize: '13px',
-              outline: 'none',
-              background: '#f8fafc'
-            }}
-          />
-          <span style={{
-            position: 'absolute',
-            right: '10px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            fontSize: '11px',
-            fontWeight: '600',
-            color: '#94a3b8',
-            background: '#ffffff',
-            border: '1px solid #cbd5e1',
-            borderRadius: '4px',
-            padding: '2px 5px'
-          }}>⌘K</span>
-        </div>
+  // Load authorized patients for this doctor
+  useEffect(() => {
+    async function loadDoctorPatients() {
+      if (!doctorId) return;
+      try {
+        const mc = await doctorService.getMissionControlData(doctorId);
+        if (mc?.authorizedPatients && mc.authorizedPatients.length > 0) {
+          setAuthorizedPatients(mc.authorizedPatients);
+          if (!selectedPatientId) {
+            setSelectedPatientId(mc.authorizedPatients[0].id);
+          }
+        }
+      } catch (err) {
+        console.warn('Authorized patients fetch notice:', err);
+      }
+    }
+    loadDoctorPatients();
+  }, [doctorId]);
 
-        {/* Right Status Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{
+  // Load selected patient's longitudinal EHR
+  useEffect(() => {
+    async function loadPatientEHR() {
+      if (!selectedPatientId || !doctorId) {
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setHasAccess(true);
+
+      try {
+        // 1. Fetch patient profile (will return 0 rows if RLS blocks due to lack of access)
+        const { data: pat, error: patErr } = await supabase
+          .from('patients')
+          .select('*')
+          .eq('id', selectedPatientId)
+          .single();
+
+        if (patErr || !pat) {
+          setHasAccess(false);
+          setPatientData(null);
+          setLoading(false);
+          return;
+        }
+
+        setPatientData(pat);
+
+        // 2. Hydrate records, reports, symptom assessments, and allergies in parallel
+        const [recs, reps, assess, algs] = await Promise.all([
+          medicalRecordsService.getRecords(selectedPatientId).catch(() => []),
+          reportService.getReports(selectedPatientId).catch(() => []),
+          supabase
+            .from('symptom_assessments')
+            .select('*')
+            .eq('patient_id', selectedPatientId)
+            .order('created_at', { ascending: false })
+            .then(res => res.data || []),
+          medicalRecordsService.getAllergies(selectedPatientId).catch(() => [])
+        ]);
+
+        setRecords(recs || []);
+        setReports(reps || []);
+        setAssessments(assess || []);
+        setAllergies(algs || []);
+      } catch (err) {
+        console.error('Error loading patient EHR:', err);
+        setHasAccess(false);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadPatientEHR();
+  }, [selectedPatientId, doctorId]);
+
+  const handleAddClinicalNote = async (e) => {
+    e.preventDefault();
+    if (!newNoteTitle.trim() || !newNoteContent.trim()) {
+      alert('Please fill in both Title and Clinical Note content.');
+      return;
+    }
+
+    setSavingNote(true);
+    try {
+      await medicalRecordsService.addRecord({
+        patientId: selectedPatientId,
+        doctorId,
+        recordType: 'clinical_note',
+        title: newNoteTitle.trim(),
+        clinicalSummary: newNoteContent.trim(),
+        structuredData: { author: profile?.full_name || 'Attending Physician' }
+      });
+
+      showToast('✓ Clinical note added to patient longitudinal EHR vault.');
+      setNewNoteModal(false);
+      setNewNoteTitle('');
+      setNewNoteContent('');
+
+      // Reload records
+      const updatedRecs = await medicalRecordsService.getRecords(selectedPatientId);
+      setRecords(updatedRecs || []);
+    } catch (err) {
+      alert('Failed to save record: ' + err.message);
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  return (
+    <div style={{ background: '#f8fafc', minHeight: '100vh', padding: '24px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+        
+        {/* Toast */}
+        {toastMessage && (
+          <div style={{
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            background: '#0f766e',
+            color: '#ffffff',
+            padding: '12px 20px',
+            borderRadius: '8px',
+            fontWeight: '700',
+            fontSize: '13px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+            zIndex: 1000,
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            background: '#dcfce7',
-            color: '#166534',
-            fontSize: '12px',
-            fontWeight: '700',
-            padding: '6px 12px',
-            borderRadius: '9999px'
+            gap: '8px'
           }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e' }}></span>
-            Cloud Sync: Active
-          </span>
-
-          <button 
-            onClick={() => showToast('🚨 Code Blue Protocol broadcasted.')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#fee2e2',
-              color: '#b91c1c',
-              border: '1px solid #fca5a5',
-              fontSize: '12px',
-              fontWeight: '700',
-              padding: '6px 14px',
-              borderRadius: '9999px',
-              cursor: 'pointer'
-            }}
-          >
-            <span>☢</span> Code Blue Alert
-          </button>
-
-          <div style={{ position: 'relative', cursor: 'pointer' }}>
-            <Bell size={20} color="#475569" />
-            <span style={{ position: 'absolute', top: '-2px', right: '-2px', width: '8px', height: '8px', background: '#dc2626', borderRadius: '50%' }}></span>
+            <CheckCircle2 size={16} /> {toastMessage}
           </div>
+        )}
 
-          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#0a4bb5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '13px' }}>
-            SC
-          </div>
-        </div>
-      </div>
-
-      {toastMessage && (
-        <div style={{ background: '#0a4bb5', color: '#ffffff', padding: '10px 24px', fontSize: '13px', fontWeight: '700', textAlign: 'center' }}>
-          {toastMessage}
-        </div>
-      )}
-
-      {/* Main Container */}
-      <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto' }}>
-        
-        {/* Title and Top Actions */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+        {/* Top Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
           <div>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
-              <span style={{ background: '#dcfce7', color: '#166534', fontSize: '11px', fontWeight: '800', padding: '3px 8px', borderRadius: '4px' }}>
-                ABDM 2.0 CONNECTED
-              </span>
-              <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: '11px', fontWeight: '800', padding: '3px 8px', borderRadius: '4px' }}>
-                🛡 Vault Encryption: SHA-256 Validated
-              </span>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#ccfbf1', color: '#0f766e', fontSize: '11px', fontWeight: '800', padding: '3px 8px', borderRadius: '4px', marginBottom: '6px' }}>
+              <FolderOpen size={13} /> UNIFIED EHR & LONGITUDINAL VAULT
             </div>
             <h1 style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', margin: 0 }}>
-              Longitudinal Health Records & Unified EHR Vault
+              Patient Clinical History & Health Records
             </h1>
+            <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0 0' }}>
+              Inspect authorized patient health records, diagnostic lab reports, and past consultations.
+            </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button 
-              onClick={() => showToast('FHIR R4 Bundle sync completed with National Health Stack.')}
+          {/* Patient Selector Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569' }}>Select Patient:</label>
+            <select
+              value={selectedPatientId}
+              onChange={(e) => setSelectedPatientId(e.target.value)}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                padding: '8px 14px',
+                padding: '7px 12px',
                 borderRadius: '8px',
-                fontSize: '12.5px',
+                border: '1px solid #cbd5e1',
+                fontSize: '13px',
+                outline: 'none',
+                background: '#ffffff',
                 fontWeight: '600',
-                color: '#334155',
-                cursor: 'pointer'
+                color: '#0f172a',
+                minWidth: '220px'
               }}
             >
-              <RefreshCw size={14} /> FHIR Bundle Sync
-            </button>
-            <button 
-              onClick={() => showToast('Exporting encrypted bundle to ABDM Health Locker...')}
+              {authorizedPatients.length === 0 ? (
+                <option value="">No authorized patients</option>
+              ) : (
+                authorizedPatients.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.abha || '91-XXXX'})
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+        </div>
+
+        {/* Access Restriction Check */}
+        {!hasAccess ? (
+          <div style={{ background: '#ffffff', border: '1px solid #fecaca', borderRadius: '12px', padding: '48px 24px', textAlign: 'center' }}>
+            <AlertTriangle size={42} color="#dc2626" style={{ margin: '0 auto 12px auto' }} />
+            <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#991b1b', margin: '0 0 8px 0' }}>
+              Clinical Access Restricted (RLS Enforced)
+            </h2>
+            <p style={{ fontSize: '13px', color: '#7f1d1d', maxWidth: '520px', margin: '0 auto 16px auto', lineHeight: 1.5 }}>
+              You do not currently have an active clinical relationship in <code>patient_doctor_access</code> with this patient, or the access period has expired.
+              Under HIPAA and ABDM health data governance, patient health records are strictly isolated.
+            </p>
+            <Link
+              to="/doctor/appointments"
               style={{
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                padding: '8px 14px',
-                borderRadius: '8px',
-                fontSize: '12.5px',
-                fontWeight: '600',
-                color: '#334155',
-                cursor: 'pointer'
-              }}
-            >
-              <Share2 size={14} /> Export to ABDM
-            </button>
-            <button 
-              onClick={() => showToast('Opening Secure Medical Document Uploader...')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: '#0a4bb5',
-                border: 'none',
                 padding: '8px 16px',
                 borderRadius: '8px',
-                fontSize: '12.5px',
-                fontWeight: '700',
+                background: '#0f766e',
                 color: '#ffffff',
-                cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(10, 75, 181, 0.25)'
-              }}
-            >
-              <UploadCloud size={15} /> Upload New EHR Document
-            </button>
-          </div>
-        </div>
-
-        {/* Patient Information Banner */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          padding: '18px 24px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '20px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{
-              width: '46px',
-              height: '46px',
-              borderRadius: '10px',
-              background: '#0a4bb5',
-              color: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: '800',
-              fontSize: '16px'
-            }}>
-              RS
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Rahul Sharma</h2>
-                <span style={{ fontSize: '12px', fontWeight: '700', color: '#475569', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>32M</span>
-                <span style={{ fontSize: '12px', fontWeight: '700', color: '#0a4bb5', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>O+ POSITIVE</span>
-              </div>
-              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                <strong>ABHA ID:</strong> 91-2345-6789-0123 &nbsp;•&nbsp; <strong>Attending:</strong> Dr. Sarah Chen, MD
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '24px', fontSize: '12px' }}>
-            <div>
-              <span style={{ color: '#64748b', display: 'block', fontSize: '11px', fontWeight: '700' }}>ALLERGIES</span>
-              <span style={{ color: '#dc2626', fontWeight: '800' }}>⚠ Penicillin (Severe)</span>
-            </div>
-            <div>
-              <span style={{ color: '#64748b', display: 'block', fontSize: '11px', fontWeight: '700' }}>CURRENT REGIMEN</span>
-              <span style={{ color: '#1e293b', fontWeight: '700' }}>Atorvastatin 20mg, Aspirin 75mg</span>
-            </div>
-            <div>
-              <span style={{ color: '#64748b', display: 'block', fontSize: '11px', fontWeight: '700' }}>VAULT ID</span>
-              <span style={{ color: '#1e293b', fontWeight: '700' }}>SHR-EHR-99214</span>
-            </div>
-          </div>
-
-          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#2563eb' }}></span>
-            <span style={{ fontSize: '12px', fontWeight: '700', color: '#1e40af' }}>Digital Consent: Active (ABDM)</span>
-          </div>
-        </div>
-
-        {/* Filter Navigation Tabs */}
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-          {[
-            { id: 'all', label: 'All Documents (58)' },
-            { id: 'labs', label: 'Lab Reports (24)' },
-            { id: 'imaging', label: 'Imaging & Scans (12)' },
-            { id: 'rx', label: 'Prescriptions (14)' },
-            { id: 'discharge', label: 'Discharge Summaries (8)' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                background: activeTab === tab.id ? '#0a4bb5' : '#ffffff',
-                color: activeTab === tab.id ? '#ffffff' : '#475569',
-                border: '1px solid #e2e8f0',
-                padding: '8px 16px',
-                borderRadius: '8px',
-                fontSize: '12.5px',
+                fontSize: '13px',
                 fontWeight: '700',
-                cursor: 'pointer'
+                textDecoration: 'none'
               }}
             >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Longitudinal Care Chronology (2021 — 2025) */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          padding: '16px 20px',
-          marginBottom: '20px'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <span style={{ fontSize: '12px', fontWeight: '800', color: '#0f172a' }}>
-              Longitudinal Care Chronology (2021 — 2025)
-            </span>
-            <div style={{ display: 'flex', gap: '16px', fontSize: '11px' }}>
-              <span style={{ color: '#dc2626' }}>● Acute Inpatient</span>
-              <span style={{ color: '#2563eb' }}>● Diagnostic Panel</span>
-              <span style={{ color: '#16a34a' }}>● Ambulatory Check</span>
-            </div>
+              Return to Appointment Queue
+            </Link>
           </div>
-
-          {/* Timeline bar */}
-          <div style={{ position: 'relative', height: '40px', display: 'flex', alignItems: 'center' }}>
-            <div style={{ position: 'absolute', width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '2px' }}></div>
-            
-            <div style={{ position: 'absolute', left: '15%', transform: 'translateX(-50%)', textAlign: 'center' }}>
-              <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#2563eb', margin: '0 auto 4px auto' }}></div>
-              <span style={{ fontSize: '10px', color: '#64748b' }}>Nov 2021</span>
-            </div>
-
-            <div style={{ position: 'absolute', left: '38%', transform: 'translateX(-50%)', textAlign: 'center' }}>
-              <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#2563eb', margin: '0 auto 4px auto' }}></div>
-              <span style={{ fontSize: '10px', color: '#64748b' }}>Aug 2022</span>
-            </div>
-
-            <div style={{ position: 'absolute', left: '68%', transform: 'translateX(-50%)', textAlign: 'center' }}>
-              <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#dc2626', margin: '0 auto 4px auto' }}></div>
-              <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: '700' }}>May 2024</span>
-            </div>
-
-            <div style={{ position: 'absolute', left: '86%', transform: 'translateX(-50%)', textAlign: 'center' }}>
-              <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: '#0a4bb5', border: '2px solid #ffffff', boxShadow: '0 0 0 2px #0a4bb5', margin: '0 auto 4px auto' }}></div>
-              <span style={{ fontSize: '10.5px', color: '#0a4bb5', fontWeight: '800', background: '#eff6ff', padding: '1px 6px', borderRadius: '4px' }}>
-                Lipid Profile Audit (Oct 20, 2024)
-              </span>
-            </div>
-
-            <div style={{ position: 'absolute', left: '98%', transform: 'translateX(-50%)', textAlign: 'center' }}>
-              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#94a3b8', margin: '0 auto 4px auto' }}></div>
-              <span style={{ fontSize: '10px', color: '#94a3b8' }}>2025</span>
-            </div>
+        ) : loading ? (
+          <div style={{ padding: '80px', textAlign: 'center', color: '#64748b' }}>
+            <RefreshCw className="animate-spin" size={32} color="#0f766e" style={{ margin: '0 auto 12px auto' }} />
+            <p style={{ fontSize: '13px', margin: 0 }}>Decentralizing and decrypting authorized EHR bundle...</p>
           </div>
-        </div>
-
-        {/* 2-Column Split: Clinical Repository vs Document Inspector */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '20px' }}>
-          
-          {/* LEFT: Clinical Repository (58 Records) */}
-          <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <FileText size={17} color="#0a4bb5" />
-                  <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: 0 }}>
-                    Clinical Repository
-                  </h3>
+        ) : !patientData ? (
+          <div style={{ padding: '60px', textAlign: 'center', color: '#64748b', background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <User size={38} color="#94a3b8" style={{ margin: '0 auto 12px auto' }} />
+            <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b' }}>No patient selected</h3>
+            <p style={{ fontSize: '13px', margin: '4px 0 0 0' }}>Select an authorized patient from the dropdown above.</p>
+          </div>
+        ) : (
+          <div>
+            {/* Patient Header Card */}
+            <div style={{
+              background: '#ffffff',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              padding: '20px 24px',
+              marginBottom: '20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '16px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: '52px',
+                  height: '52px',
+                  borderRadius: '12px',
+                  background: '#ccfbf1',
+                  color: '#0f766e',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '20px',
+                  fontWeight: '800'
+                }}>
+                  {(patientData.full_name || 'PT').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                 </div>
-                <span style={{ fontSize: '11.5px', fontWeight: '700', color: '#64748b' }}>58 Records</span>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', margin: 0 }}>
+                      {patientData.full_name}
+                    </h2>
+                    <span style={{ fontSize: '11px', fontWeight: '800', background: '#ccfbf1', color: '#0f766e', padding: '2px 8px', borderRadius: '4px' }}>
+                      ACCESS GRANTED VIA CLINICAL RELATIONSHIP
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12.5px', color: '#64748b', marginTop: '4px' }}>
+                    ABHA: <strong>{patientData.abha_id || '91-XXXX-XXXX'}</strong> • Blood Group: <strong>{patientData.blood_group || 'N/A'}</strong> • Phone: {patientData.phone || 'N/A'}
+                  </div>
+                </div>
               </div>
 
-              <div style={{ position: 'relative' }}>
-                <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                <input 
-                  type="text"
-                  placeholder="Search reports by ICD-10, LOINC, doctor, hospital..."
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={() => setNewNoteModal(true)}
                   style={{
-                    width: '100%',
-                    padding: '7px 10px 7px 32px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '12px',
-                    outline: 'none',
-                    background: '#f8fafc'
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    background: '#0f766e',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontSize: '12.5px',
+                    fontWeight: '700',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer'
                   }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', fontSize: '11px', color: '#64748b' }}>
-                <span>Sort: <strong>Most Recent First</strong></span>
-                <span style={{ color: '#0a4bb5', cursor: 'pointer', fontWeight: '700' }}>Filter Tags</span>
+                >
+                  <Plus size={14} /> Add Clinical Progress Note
+                </button>
               </div>
             </div>
 
-            {/* List of records */}
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              
-              {/* Record 1: Comprehensive Metabolic & Lipid Profile (Selected) */}
-              <div 
-                onClick={() => setSelectedRecord('lipid')}
-                style={{
-                  padding: '14px 20px',
-                  borderBottom: '1px solid #f1f5f9',
-                  background: selectedRecord === 'lipid' ? '#eff6ff' : '#ffffff',
-                  borderLeft: selectedRecord === 'lipid' ? '4px solid #0a4bb5' : '4px solid transparent',
-                  cursor: 'pointer'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
-                    Comprehensive Metabolic & Lipid Profile
-                  </div>
-                  <span style={{ background: '#fee2e2', color: '#b91c1c', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>
-                    Critical LDL
-                  </span>
-                </div>
-                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>
-                  Thyrocare / LabCorp • Pathologist: Dr. N. Rao
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: '#94a3b8' }}>
-                  <span style={{ color: '#16a34a', fontWeight: '600' }}>✓ Verified Oct 20, 2024</span>
-                  <span>LOINC 24331-1</span>
-                </div>
+            {/* Baseline Vitals Strip */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '12px',
+              marginBottom: '20px'
+            }}>
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 16px' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block' }}>BLOOD PRESSURE</span>
+                <strong style={{ fontSize: '15px', color: '#0f172a' }}>
+                  {patientData.bp_systolic || '120'}/{patientData.bp_diastolic || '80'} <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#64748b' }}>mmHg</span>
+                </strong>
               </div>
 
-              {/* Record 2: ECG Report */}
-              <div 
-                onClick={() => setSelectedRecord('ecg')}
-                style={{
-                  padding: '14px 20px',
-                  borderBottom: '1px solid #f1f5f9',
-                  background: selectedRecord === 'ecg' ? '#eff6ff' : '#ffffff',
-                  borderLeft: selectedRecord === 'ecg' ? '4px solid #0a4bb5' : '4px solid transparent',
-                  cursor: 'pointer'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
-                    12-Lead Electrocardiogram (ECG) Report
-                  </div>
-                  <span style={{ background: '#f1f5f9', color: '#475569', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>
-                    Borderline
-                  </span>
-                </div>
-                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>
-                  City General Hospital • Cardiology Outpatient • Dr. Sarah Chen
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: '#94a3b8' }}>
-                  <span>✓ Sinus Tachycardia (104 bpm)</span>
-                  <span>Sep 14, 2024</span>
-                </div>
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 16px' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block' }}>FASTING BLOOD SUGAR</span>
+                <strong style={{ fontSize: '15px', color: '#0f172a' }}>
+                  {patientData.blood_sugar || '95'} <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#64748b' }}>mg/dL</span>
+                </strong>
               </div>
 
-              {/* Record 3: Contrast-Enhanced Chest CT Scan */}
-              <div 
-                onClick={() => setSelectedRecord('ct')}
-                style={{
-                  padding: '14px 20px',
-                  borderBottom: '1px solid #f1f5f9',
-                  background: selectedRecord === 'ct' ? '#eff6ff' : '#ffffff',
-                  borderLeft: selectedRecord === 'ct' ? '4px solid #0a4bb5' : '4px solid transparent',
-                  cursor: 'pointer'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
-                    Contrast-Enhanced Chest CT Scan
-                  </div>
-                  <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>
-                    DICOM Synced
-                  </span>
-                </div>
-                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>
-                  Metropolitan Diagnostic Center • Radiologist: Dr. P. Joshi
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: '#94a3b8' }}>
-                  <span>Findings: Mild subsegmental atelectasis</span>
-                  <span>Jun 10, 2024</span>
-                </div>
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 16px' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block' }}>BMI INDEX</span>
+                <strong style={{ fontSize: '15px', color: '#0f172a' }}>
+                  {patientData.bmi || '23.1'} <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#16a34a' }}>Healthy</span>
+                </strong>
               </div>
 
-              {/* Record 4: ABDM Digital Rx Bundle */}
-              <div 
-                onClick={() => setSelectedRecord('rx')}
-                style={{
-                  padding: '14px 20px',
-                  borderBottom: '1px solid #f1f5f9',
-                  background: selectedRecord === 'rx' ? '#eff6ff' : '#ffffff',
-                  borderLeft: selectedRecord === 'rx' ? '4px solid #0a4bb5' : '4px solid transparent',
-                  cursor: 'pointer'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
-                    ABDM Digital Prescription Bundle #2024-881
-                  </div>
-                  <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>
-                    Active Rx
-                  </span>
-                </div>
-                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>
-                  Prescribed by Dr. Arjun Mehta • Max Healthcare Ambulatory
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: '#94a3b8' }}>
-                  <span>3 Medications • 90 Days supply</span>
-                  <span>Jun 02, 2024</span>
-                </div>
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 16px' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block' }}>RECORDED ALLERGIES</span>
+                <strong style={{ fontSize: '13px', color: allergies.length > 0 ? '#dc2626' : '#16a34a' }}>
+                  {allergies.length > 0 ? `${allergies.length} Active Allergies` : 'No known allergies'}
+                </strong>
               </div>
-
-              {/* Record 5: Inpatient Discharge Summary */}
-              <div 
-                onClick={() => setSelectedRecord('discharge')}
-                style={{
-                  padding: '14px 20px',
-                  borderBottom: '1px solid #f1f5f9',
-                  background: selectedRecord === 'discharge' ? '#eff6ff' : '#ffffff',
-                  borderLeft: selectedRecord === 'discharge' ? '4px solid #0a4bb5' : '4px solid transparent',
-                  cursor: 'pointer'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>
-                    Inpatient Discharge Summary - Ward 4B
-                  </div>
-                  <span style={{ background: '#f1f5f9', color: '#64748b', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>
-                    Archived
-                  </span>
-                </div>
-                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '3px' }}>
-                  City General Hospital • Admission: May 12 - May 18, 2024
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: '#94a3b8' }}>
-                  <span>Primary Diagnosis: Acute Coronary Syndrome</span>
-                  <span>May 18, 2024</span>
-                </div>
-              </div>
-
             </div>
 
-            {/* Pagination footer */}
-            <div style={{ padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px', color: '#64748b' }}>
-              <span>Showing 5 of 58 unified records</span>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <button style={{ border: '1px solid #cbd5e1', background: '#ffffff', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer' }}>&lt;</button>
-                <span style={{ fontWeight: '800', color: '#0a4bb5' }}>1</span>
-                <button style={{ border: '1px solid #cbd5e1', background: '#ffffff', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer' }}>&gt;</button>
+            {/* Longitudinal Records Tabs */}
+            <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', padding: '8px 16px', gap: '8px' }}>
+                <button
+                  onClick={() => setActiveTab('records')}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    background: activeTab === 'records' ? '#0f766e' : 'transparent',
+                    color: activeTab === 'records' ? '#ffffff' : '#475569'
+                  }}
+                >
+                  Clinical Notes & Diagnoses ({records.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('reports')}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    background: activeTab === 'reports' ? '#0f766e' : 'transparent',
+                    color: activeTab === 'reports' ? '#ffffff' : '#475569'
+                  }}
+                >
+                  Diagnostic Reports & Lab Slips ({reports.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('assessments')}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    background: activeTab === 'assessments' ? '#0f766e' : 'transparent',
+                    color: activeTab === 'assessments' ? '#ffffff' : '#475569'
+                  }}
+                >
+                  AI Symptom Telemetry ({assessments.length})
+                </button>
               </div>
+
+              {/* Tab 1: Clinical Records */}
+              {activeTab === 'records' && (
+                <div style={{ padding: '20px' }}>
+                  {records.length === 0 ? (
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                      <FileText size={36} color="#94a3b8" style={{ margin: '0 auto 8px auto' }} />
+                      <p style={{ margin: 0, fontSize: '13px' }}>No clinical notes documented yet for this patient.</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {records.map(rec => (
+                        <div key={rec.id} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <strong style={{ fontSize: '14px', color: '#0f172a' }}>{rec.title}</strong>
+                              <span style={{ fontSize: '11px', fontWeight: '700', background: '#eff6ff', color: '#1d4ed8', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>
+                                {rec.record_type}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '12px', color: '#64748b' }}>
+                              {rec.record_date || new Date(rec.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: '13px', color: '#334155', margin: 0, lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+                            {rec.clinical_summary}
+                          </p>
+                          {rec.doctor && (
+                            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '8px' }}>
+                              Author: Dr. {rec.doctor.full_name} ({rec.doctor.specialization || 'Clinical Practitioner'})
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 2: Diagnostic Reports */}
+              {activeTab === 'reports' && (
+                <div style={{ padding: '20px' }}>
+                  {reports.length === 0 ? (
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                      <FileText size={36} color="#94a3b8" style={{ margin: '0 auto 8px auto' }} />
+                      <p style={{ margin: 0, fontSize: '13px' }}>No diagnostic reports uploaded for this patient.</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {reports.map(rep => (
+                        <div key={rep.id} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <strong style={{ fontSize: '14px', color: '#0f172a', display: 'block' }}>{rep.report_title}</strong>
+                            <span style={{ fontSize: '12px', color: '#64748b' }}>
+                              Type: {rep.report_type || 'Clinical Report'} • Uploaded: {new Date(rep.created_at).toLocaleDateString()} • Status: {rep.processing_status || 'completed'}
+                            </span>
+                          </div>
+                          {rep.storage_path && (
+                            <span style={{ fontSize: '11.5px', color: '#0f766e', fontWeight: '700' }}>
+                              Vault Path: {rep.storage_path}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 3: AI Assessments */}
+              {activeTab === 'assessments' && (
+                <div style={{ padding: '20px' }}>
+                  {assessments.length === 0 ? (
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                      <Activity size={36} color="#94a3b8" style={{ margin: '0 auto 8px auto' }} />
+                      <p style={{ margin: 0, fontSize: '13px' }}>No symptom assessments recorded for this patient.</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {assessments.map(a => (
+                        <div key={a.id} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <span style={{
+                              fontSize: '11px',
+                              fontWeight: '800',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: a.risk_level === 'High' ? '#fee2e2' : (a.risk_level === 'Moderate' ? '#fef3c7' : '#dcfce7'),
+                              color: a.risk_level === 'High' ? '#991b1b' : (a.risk_level === 'Moderate' ? '#92400e' : '#166534')
+                            }}>
+                              RISK: {a.risk_level}
+                            </span>
+                            <span style={{ fontSize: '12px', color: '#64748b' }}>
+                              {new Date(a.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: '13px', color: '#0f172a', marginBottom: '6px' }}>
+                            <strong>Reported Symptoms:</strong> {(a.symptoms || []).join(', ')}
+                          </div>
+
+                          {a.possible_conditions && a.possible_conditions.length > 0 && (
+                            <div style={{ fontSize: '12.5px', color: '#475569' }}>
+                              <strong>AI Differential:</strong> {a.possible_conditions.map(c => `${c.condition} (${Math.round(c.probability * 100)}%)`).join(', ')}
+                            </div>
+                          )}
+
+                          <div style={{ fontSize: '11px', color: '#7c3aed', background: '#faf5ff', padding: '6px 10px', borderRadius: '4px', marginTop: '10px' }}>
+                            ℹ Assistive AI telemetry only. Doctor verification required before making diagnostic conclusions.
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
             </div>
           </div>
+        )}
 
-          {/* RIGHT: Document Inspector & Synthesizer */}
-          <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '24px' }}>
-            
-            {/* Inspector Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #f1f5f9', paddingBottom: '16px', marginBottom: '16px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', margin: 0 }}>
-                  Comprehensive Metabolic & Lipid Profile (Oct 20, 2024)
-                </h3>
-                <span style={{ fontSize: '11.5px', color: '#64748b' }}>Verified Digital Record • National Diagnostic Interoperability Standard</span>
-              </div>
+        {/* Add Note Modal */}
+        {newNoteModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: '#ffffff',
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '520px',
+              width: '90%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+            }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', margin: '0 0 12px 0' }}>
+                Add Clinical Progress Note
+              </h3>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button 
-                  onClick={() => showToast('Displaying FHIR Observation JSON schema')}
-                  style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', color: '#475569', cursor: 'pointer' }}
-                >
-                  &lt;&gt; FHIR JSON
-                </button>
-                <button 
-                  onClick={() => showToast('Downloading authentic signed PDF lab report')}
-                  style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', color: '#475569', cursor: 'pointer' }}
-                >
-                  <Download size={13} /> Download PDF
-                </button>
-                <button 
-                  onClick={() => showToast('Cryptographic signature verified: Valid')}
-                  style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', color: '#166534', cursor: 'pointer' }}
-                >
-                  ✓ Verify Signature
-                </button>
-                <button 
-                  onClick={() => showToast('ABDM Consent active: Granted by Rahul Sharma')}
-                  style={{ background: '#0a4bb5', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', color: '#ffffff', cursor: 'pointer' }}
-                >
-                  ABDM Consent
-                </button>
-              </div>
+              <form onSubmit={handleAddClinicalNote}>
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                    Note Title *
+                  </label>
+                  <input
+                    type="text"
+                    value={newNoteTitle}
+                    onChange={(e) => setNewNoteTitle(e.target.value)}
+                    placeholder="e.g. Hypertension Follow-Up Progress Note"
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '13px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                    Clinical Findings & Plan *
+                  </label>
+                  <textarea
+                    rows="5"
+                    value={newNoteContent}
+                    onChange={(e) => setNewNoteContent(e.target.value)}
+                    placeholder="Document clinical observations, medication titration, patient response, and follow-up instructions..."
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '13px',
+                      outline: 'none',
+                      fontFamily: 'inherit'
+                    }}
+                  ></textarea>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setNewNoteModal(false)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      background: '#f1f5f9',
+                      border: 'none',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      color: '#475569',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingNote}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: '6px',
+                      background: '#0f766e',
+                      border: 'none',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      color: '#ffffff',
+                      cursor: savingNote ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {savingNote ? 'Saving...' : 'Save to EHR'}
+                  </button>
+                </div>
+              </form>
             </div>
-
-            {/* Specimen Metadata Table */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px' }}>
-              <div>
-                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', display: 'block' }}>SPECIMEN SOURCE</span>
-                <strong style={{ fontSize: '12px', color: '#1e293b' }}>Venous Blood (Fasting 12h)</strong>
-              </div>
-              <div>
-                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', display: 'block' }}>COLLECTION TIMESTAMP</span>
-                <strong style={{ fontSize: '12px', color: '#1e293b' }}>20-Oct-2024 - 07:45 AM</strong>
-              </div>
-              <div>
-                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', display: 'block' }}>LABORATORY REF</span>
-                <strong style={{ fontSize: '12px', color: '#1e293b' }}>TC-BLR-883918</strong>
-              </div>
-              <div>
-                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', display: 'block' }}>INTERPRETED STATUS</span>
-                <strong style={{ fontSize: '12px', color: '#dc2626' }}>⚠ Critical Hyperlipidemia</strong>
-              </div>
-            </div>
-
-            {/* Diagnostic Parameters Table */}
-            <div style={{ marginBottom: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <span style={{ fontSize: '11.5px', fontWeight: '800', color: '#0f172a' }}>
-                  Structured Diagnostic Parameters (FHIR Observation Extracted)
-                </span>
-                <span style={{ fontSize: '10.5px', color: '#64748b' }}>Auto-Normalized via LOINC</span>
-              </div>
-
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                
-                {/* Total Cholesterol */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #f1f5f9' }}>
-                  <div>
-                    <strong style={{ fontSize: '12.5px', color: '#0f172a' }}>Total Cholesterol</strong>
-                    <span style={{ fontSize: '10.5px', color: '#94a3b8', marginLeft: '6px' }}>LOINC 2093-3</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>242 <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#64748b' }}>mg/dL</span></span>
-                    <span style={{ background: '#fee2e2', color: '#b91c1c', fontSize: '10.5px', fontWeight: '800', padding: '2px 8px', borderRadius: '4px' }}>High [Ref: &lt;200]</span>
-                    <span style={{ color: '#dc2626' }}>↗</span>
-                  </div>
-                </div>
-
-                {/* LDL Cholesterol */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', background: '#fff5f5' }}>
-                  <div>
-                    <strong style={{ fontSize: '12.5px', color: '#dc2626' }}>LDL Cholesterol (Direct)</strong>
-                    <span style={{ fontSize: '10.5px', color: '#94a3b8', marginLeft: '6px' }}>LOINC 13457-7</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: '800', color: '#dc2626' }}>164 <span style={{ fontSize: '11px', fontWeight: 'normal' }}>mg/dL</span></span>
-                    <span style={{ background: '#b91c1c', color: '#ffffff', fontSize: '10.5px', fontWeight: '800', padding: '2px 8px', borderRadius: '4px' }}>Critical [Ref: &lt;100]</span>
-                    <AlertCircle size={15} color="#dc2626" />
-                  </div>
-                </div>
-
-                {/* HDL Cholesterol */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #f1f5f9' }}>
-                  <div>
-                    <strong style={{ fontSize: '12.5px', color: '#0f172a' }}>HDL Cholesterol</strong>
-                    <span style={{ fontSize: '10.5px', color: '#94a3b8', marginLeft: '6px' }}>LOINC 2085-9</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>44 <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#64748b' }}>mg/dL</span></span>
-                    <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10.5px', fontWeight: '800', padding: '2px 8px', borderRadius: '4px' }}>Normal [Ref: &gt;40]</span>
-                    <CheckCircle2 size={15} color="#16a34a" />
-                  </div>
-                </div>
-
-                {/* Triglycerides */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #f1f5f9' }}>
-                  <div>
-                    <strong style={{ fontSize: '12.5px', color: '#0f172a' }}>Triglycerides</strong>
-                    <span style={{ fontSize: '10.5px', color: '#94a3b8', marginLeft: '6px' }}>LOINC 2571-8</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>170 <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#64748b' }}>mg/dL</span></span>
-                    <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: '10.5px', fontWeight: '800', padding: '2px 8px', borderRadius: '4px' }}>Borderline [Ref: &lt;150]</span>
-                    <span>—</span>
-                  </div>
-                </div>
-
-                {/* Fasting Blood Glucose */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px' }}>
-                  <div>
-                    <strong style={{ fontSize: '12.5px', color: '#0f172a' }}>Fasting Blood Glucose</strong>
-                    <span style={{ fontSize: '10.5px', color: '#94a3b8', marginLeft: '6px' }}>LOINC 1558-6</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>98 <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#64748b' }}>mg/dL</span></span>
-                    <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10.5px', fontWeight: '800', padding: '2px 8px', borderRadius: '4px' }}>Optimal [Ref: 70-99]</span>
-                    <CheckCircle2 size={15} color="#16a34a" />
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            {/* Longitudinal Trend Chart (2022 — 2024) */}
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <div>
-                  <strong style={{ fontSize: '13px', color: '#0f172a', display: 'block' }}>MediMind Longitudinal Trend & Clinical Synthesizer</strong>
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>Cross-Document Parameter Modeling (2022 — 2024)</span>
-                </div>
-                <span style={{ background: '#dcfce7', color: '#166534', fontSize: '11px', fontWeight: '800', padding: '3px 8px', borderRadius: '4px' }}>
-                  18% Net Improvement
-                </span>
-              </div>
-
-              <div style={{ height: '150px', width: '100%' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={longitudinalTrend}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} domain={[30, 300]} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="total" name="Total Cholesterol" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="ldl" name="LDL Direct" stroke="#dc2626" strokeWidth={2} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="hdl" name="HDL Baseline" stroke="#16a34a" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', fontSize: '11px', color: '#475569', marginTop: '6px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', background: '#2563eb', borderRadius: '50%' }}></span> Total Cholesterol</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', background: '#dc2626', borderRadius: '50%' }}></span> LDL Target & Trend</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', background: '#16a34a', borderRadius: '50%' }}></span> HDL Baseline</span>
-              </div>
-            </div>
-
-            {/* AI Clinical Copilot Synthesis & Prognosis */}
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#166534', fontSize: '13px', fontWeight: '800', marginBottom: '6px' }}>
-                <Sparkles size={16} /> AI Clinical Copilot Synthesis & Prognosis
-              </div>
-              <p style={{ fontSize: '12px', color: '#14532d', lineHeight: '1.5', margin: 0 }}>
-                "Dyslipidemia showing gradual stabilization on <strong>Atorvastatin 20mg daily</strong>. LDL has decreased from baseline 208 mg/dL (May 2022) to 164 mg/dL (-21.1%), but remains outside target threshold (&lt;100 mg/dL for cardiac risk profile). <strong>Recommendation:</strong> Escalate to Atorvastatin 40mg or add Ezetimibe 10mg. Order Comprehensive Liver Function Panel (LFT) and hs-CRP at next 6-month interval."
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #dcfce7', fontSize: '11.5px' }}>
-                <span style={{ color: '#166534', fontWeight: '700' }}>Confidence Score: 96.4% based on ACC/AHA 2023 Guidelines</span>
-                <button 
-                  onClick={() => showToast('AI Synthesis added to Dr. Sarah Chen consultation notes.')}
-                  style={{ background: '#16a34a', color: '#ffffff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontWeight: '700', cursor: 'pointer' }}
-                >
-                  Add to Doctor Consultation Notes
-                </button>
-              </div>
-            </div>
-
-            {/* ABDM Consent Artifact & Audit Trail */}
-            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '800', color: '#0f172a' }}>
-                  <ShieldCheck size={14} color="#0a4bb5" /> ABDM Consent Artifact & Audit Trail
-                </div>
-                <span style={{ fontSize: '10px', color: '#16a34a', fontWeight: '700' }}>HIPAA & ABDM Compliant</span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', fontSize: '10.5px', color: '#64748b', background: '#f8fafc', padding: '10px', borderRadius: '6px' }}>
-                <div>
-                  <span style={{ display: 'block', fontWeight: '700' }}>CONSENT ARTIFACT ID</span>
-                  <span>#CONSENT-2024-99128</span>
-                </div>
-                <div>
-                  <span style={{ display: 'block', fontWeight: '700' }}>VALIDITY WINDOW</span>
-                  <span>Active until 31-Dec-2025</span>
-                </div>
-                <div>
-                  <span style={{ display: 'block', fontWeight: '700' }}>DATA CUSTODIAN</span>
-                  <span>National Health Authority (NHA)</span>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', fontSize: '10.5px', color: '#94a3b8' }}>
-                <span>🔒 Digest: 4c096b21f98d... (Encrypted via Ayushman Bharat Health Stack)</span>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <span style={{ color: '#0a4bb5', cursor: 'pointer' }}>Audit Access Log (12 Events)</span>
-                  <span style={{ color: '#dc2626', cursor: 'pointer' }}>Revoke Patient Consent</span>
-                </div>
-              </div>
-            </div>
-
           </div>
-
-        </div>
+        )}
 
       </div>
     </div>

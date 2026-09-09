@@ -103,7 +103,7 @@ export const authService = {
       const { data } = await supabase.from('doctors').select('*').eq('id', userId).single();
       if (data) return { ...data, role };
     }
-    if (role === UserRoles.PHARMACIST) {
+    if (role === UserRoles.PHARMACIST || role === 'pharmacy') {
       const { data } = await supabase.from('pharmacies').select('*').eq('id', userId).single();
       if (data) return { ...data, role };
     }

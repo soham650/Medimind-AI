@@ -9,6 +9,15 @@ import { supabase } from '../lib/supabaseClient';
 export const aiService = {
   // Symptom intake and triage risk assessment
   async assessSymptoms(symptoms, patientId = null) {
+    if (!patientId) {
+      try {
+        const session = (await supabase.auth.getSession()).data?.session;
+        patientId = session?.user?.id || null;
+      } catch (_e) {
+        patientId = null;
+      }
+    }
+
     // 1. Call ML Prediction Service
     const predictionResult = await mlApi.predictDisease(symptoms);
     

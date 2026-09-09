@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Link } from 'react-router-dom';
-import { pharmacyService } from '../../services/pharmacyService';
-import { prescriptionService } from '../../services/prescriptionService';
-import { ShoppingCart, Store, Plus, Minus, CheckCircle, FileText, CreditCard, ShieldCheck, Package } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { pharmacyService } from '../../services/pharmacy.service';
+import { prescriptionService } from '../../services/prescription.service';
+import { orderService } from '../../services/order.service';
+import { ShoppingCart, Store, Plus, Minus, CheckCircle, FileText, CreditCard, ShieldCheck, Package, AlertCircle } from 'lucide-react';
 
 export default function PharmacyStore() {
-  const { user } = useAuth();
+  const { user, isAuthenticated, loginDemo } = useAuth();
+  const location = useLocation();
   const [medicines, setMedicines] = useState([]);
   const [pharmacies, setPharmacies] = useState([]);
   const [prescriptions, setPrescriptions] = useState([]);
@@ -18,6 +20,7 @@ export default function PharmacyStore() {
   const [orderComplete, setOrderComplete] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [checkoutError, setCheckoutError] = useState(null);
 
   useEffect(() => {
     loadStoreData();
@@ -31,10 +34,33 @@ export default function PharmacyStore() {
         pharmacyService.getApprovedPharmacies(),
         user ? prescriptionService.getPatientPrescriptions(user.id) : []
       ]);
-      setMedicines(medList);
-      setPharmacies(pharmList);
-      if (pharmList.length > 0) setSelectedPharmacy(pharmList[0]);
-      setPrescriptions(rxList);
+      setMedicines(medList || []);
+      setPharmacies(pharmList || []);
+      if (pharmList && pharmList.length > 0) setSelectedPharmacy(pharmList[0]);
+      setPrescriptions(rxList || []);
+
+      // Auto-populate cart and prescription if arriving from PatientPrescriptions with state
+      if (location.state?.items && medList && medList.length > 0) {
+        const prefilledCart = [];
+        location.state.items.forEach(reqItem => {
+          const matchedMed = medList.find(m => 
+            m.brand_name.toLowerCase().includes(reqItem.name.toLowerCase()) ||
+            reqItem.name.toLowerCase().includes(m.brand_name.toLowerCase()) ||
+            m.generic_name?.toLowerCase().includes(reqItem.name.toLowerCase())
+          );
+          if (matchedMed && !prefilledCart.some(c => c.id === matchedMed.id)) {
+            prefilledCart.push({ ...matchedMed, quantity: reqItem.quantity || 1 });
+          }
+        });
+        if (prefilledCart.length > 0) {
+          setCart(prefilledCart);
+        }
+      }
+
+      if (location.state?.rxId && rxList) {
+        const matchedRx = rxList.find(r => r.rx_id === location.state.rxId || r.id === location.state.rxId);
+        if (matchedRx) setSelectedRx(matchedRx);
+      }
     } catch (err) {
       console.error('Error loading store data:', err);
     } finally {
@@ -66,27 +92,35 @@ export default function PharmacyStore() {
 
   const handleCheckout = async (e) => {
     e.preventDefault();
+    setCheckoutError(null);
     if (cart.length === 0) return;
     if (!selectedPharmacy) {
-      alert('Please select an approved medical store.');
+      setCheckoutError('Please select an approved medical dispensary.');
+      return;
+    }
+    if (!user?.id) {
+      setCheckoutError('Authentication required: Please sign in to complete your pharmacy order.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const order = await pharmacyService.placeOrder({
+      const order = await orderService.createOrder({
         patientId: user.id,
         pharmacyId: selectedPharmacy.id,
         prescriptionId: selectedRx?.id || null,
-        items: cart,
-        totalAmount: cartTotal,
-        paymentMethod,
-        deliveryAddress
+        items: cart.map(item => ({
+          medicine_id: item.id,
+          quantity: item.quantity
+        })),
+        deliveryAddress,
+        notes: `Payment Method: ${paymentMethod.toUpperCase()}`
       });
       setOrderComplete(order);
       setCart([]);
     } catch (err) {
-      alert('Checkout failed: ' + err.message);
+      console.error('Checkout failed:', err);
+      setCheckoutError(err.message || 'Checkout failed. Please verify pharmacy inventory availability.');
     } finally {
       setSubmitting(false);
     }
@@ -162,7 +196,7 @@ export default function PharmacyStore() {
                 ) : (
                   pharmacies.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.pharmacy_name || p.name} ({p.pharmacy_address || 'Main Branch'})
+                      {p.pharmacy_name || p.name} ({p.address || p.pharmacy_address || 'Main Branch'})
                     </option>
                   ))
                 )}
@@ -273,8 +307,12 @@ export default function PharmacyStore() {
 
                 {/* Payment method */}
                 <div style={{ marginBottom: '20px' }}>
+                  <div style={{ padding: '8px 12px', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '8px', color: '#92400e', fontSize: '11px', marginBottom: '12px', display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                    <ShieldCheck size={14} color="#d97706" style={{ marginTop: '2px', flexShrink: 0 }} />
+                    <span><strong>Sandbox / Evaluation Payment:</strong> Demonstrator mode. Transactions execute transactional FEFO inventory allocation via <code>create_medicine_order_tx</code> without live credit charges.</span>
+                  </div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
-                    Payment Options:
+                    Payment Options (Sandbox):
                   </label>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                     <button
@@ -314,6 +352,13 @@ export default function PharmacyStore() {
                   <span>Total Amount:</span>
                   <span>₹{cartTotal}</span>
                 </div>
+
+                {checkoutError && (
+                  <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', fontSize: '12px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <AlertCircle size={15} color="#b91c1c" style={{ flexShrink: 0 }} />
+                    <span>{checkoutError}</span>
+                  </div>
+                )}
 
                 <button
                   onClick={handleCheckout}

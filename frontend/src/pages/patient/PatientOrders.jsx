@@ -67,7 +67,7 @@ export default function PatientOrders() {
     if (!window.confirm('Are you sure you want to cancel this medicine order?')) return;
     setCancellingId(orderId);
     try {
-      await orderService.fulfillPrescriptionOrder(orderId, selectedOrder?.pharmacy_id || '00000000-0000-0000-0000-000000000000', 'cancel');
+      await orderService.cancelOrder(orderId);
       showToast('Order successfully cancelled.');
       await fetchOrders();
     } catch (err) {

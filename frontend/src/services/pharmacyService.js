@@ -8,17 +8,36 @@ import { supabase } from '../lib/supabaseClient';
 export const pharmacyService = {
   // Get approved pharmacies
   async getApprovedPharmacies() {
-    const { data, error } = await supabase
+    try {
+      const { data, error } = await supabase
+        .from('pharmacies')
+        .select('id, pharmacy_name, contact_person, phone, email, address, verification_status, is_active')
+        .eq('verification_status', 'approved')
+        .eq('is_active', true);
+
+      if (!error && data && data.length > 0) {
+        return data.map(p => ({
+          ...p,
+          name: p.pharmacy_name,
+          pharmacy_address: p.address
+        }));
+      }
+    } catch (e) {
+      console.warn('Direct pharmacies table lookup note:', e.message);
+    }
+
+    // Fallback to profiles role = 'pharmacy' or 'pharmacist'
+    const { data: profData, error: profErr } = await supabase
       .from('profiles')
       .select('id, full_name, name, pharmacy_name, pharmacy_address, gst_number')
-      .eq('role', 'pharmacy')
+      .in('role', ['pharmacy', 'pharmacist'])
       .eq('approval_status', 'approved');
 
-    if (error) {
-      console.warn('Could not fetch approved pharmacies:', error.message);
+    if (profErr) {
+      console.warn('Could not fetch approved pharmacies:', profErr.message);
       return [];
     }
-    return data || [];
+    return profData || [];
   },
 
   // Get medicines catalog
@@ -29,17 +48,13 @@ export const pharmacyService = {
       .order('brand_name', { ascending: true });
 
     if (error) {
-      console.warn('Fallback medicines catalog used:', error.message);
-      return [
-        { id: 'm1', brand_name: 'Paracetamol 650', generic_name: 'Acetaminophen', standard_price: 30.00, requires_prescription: false },
-        { id: 'm2', brand_name: 'Augmentin 625', generic_name: 'Amoxicillin + Clavulanic Acid', standard_price: 210.00, requires_prescription: true },
-        { id: 'm3', brand_name: 'Metformin 500', generic_name: 'Metformin Hydrochloride', standard_price: 45.00, requires_prescription: true },
-        { id: 'm4', brand_name: 'Amlodipine 5', generic_name: 'Amlodipine Besylate', standard_price: 35.00, requires_prescription: true },
-        { id: 'm5', brand_name: 'Cetirizine 10', generic_name: 'Cetirizine Hydrochloride', standard_price: 25.00, requires_prescription: false },
-        { id: 'm6', brand_name: 'Pantoprazole 40', generic_name: 'Pantoprazole Sodium', standard_price: 90.00, requires_prescription: false }
-      ];
+      console.warn('Medicines catalog fetch note:', error.message);
+      return [];
     }
-    return data || [];
+    return (data || []).map(med => ({
+      ...med,
+      standard_price: med.price ?? med.standard_price ?? 0
+    }));
   },
 
   // Place medicine order with pharmacy

@@ -1,757 +1,613 @@
-import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { 
-  Video, 
-  Mic, 
-  MicOff, 
-  VideoOff, 
-  PhoneOff, 
-  Monitor, 
-  Camera, 
-  Activity, 
-  FileText, 
-  Search, 
-  Bell, 
-  ShieldCheck, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Plus, 
-  X, 
-  Sparkles, 
-  ChevronRight,
-  Heart,
-  Send,
-  Lock
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { appointmentService } from '../../services/appointment.service';
 import { consultationService } from '../../services/consultation.service';
+import { medicalRecordsService } from '../../services/medical_records.service';
+import { reportService } from '../../services/report.service';
+import VideoConsultationProvider from '../../components/common/VideoConsultationProvider';
+import { 
+  FileText, 
+  Activity, 
+  Heart, 
+  AlertTriangle, 
+  CheckCircle2, 
+  ShieldCheck, 
+  Sparkles, 
+  Clock, 
+  Lock, 
+  RefreshCw, 
+  Send, 
+  Plus, 
+  ExternalLink,
+  ChevronRight,
+  FilePlus2,
+  Stethoscope,
+  ArrowLeft
+} from 'lucide-react';
 
 export default function ConsultationRoom() {
   const { appointmentId } = useParams();
-  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const { user, profile } = useAuth();
+  const doctorId = profile?.id || user?.id;
 
-  const [inCall, setInCall] = useState(true);
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
-  const [activeSoapTab, setActiveSoapTab] = useState('S');
+  const [loading, setLoading] = useState(true);
+  const [appointment, setAppointment] = useState(null);
+  const [patientAllergies, setPatientAllergies] = useState([]);
+  const [patientRecords, setPatientRecords] = useState([]);
+  const [patientReports, setPatientReports] = useState([]);
+  const [existingConsultation, setExistingConsultation] = useState(null);
+
+  // Doctor Clinical Workspace State
+  const [chiefComplaint, setChiefComplaint] = useState('');
+  const [clinicalSummary, setClinicalSummary] = useState('');
+  const [diagnosis, setDiagnosis] = useState('');
+  const [treatmentPlan, setTreatmentPlan] = useState('');
+  const [followUpNotes, setFollowUpNotes] = useState('');
+  const [savingEncounter, setSavingEncounter] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
-  const [clinicalNotes, setClinicalNotes] = useState(
-    'Patient presents with mild dizziness on postural transition. No orthostatic hypotension documented. Suggestive of secondary autonomic dysregulation post-viral syndrome.'
-  );
+  // Assistive AI state
+  const [aiSuggestionsViewed, setAiSuggestionsViewed] = useState(false);
 
-  const [medicines, setMedicines] = useState([
-    { id: 1, name: 'Telmisartan 40mg', type: 'Tablet | Oral', schedule: '1 tab OD (After breakfast)', duration: '30 Days', refills: 'Refills: 2 Allowed' },
-    { id: 2, name: 'Metoprolol Succinate ER 25mg', type: 'Tablet | Oral', schedule: '1 tab OD (At bedtime)', duration: '15 Days', refills: 'Refills: 1 Allowed' },
-    { id: 3, name: 'Coenzyme Q10 + Multivitamin', type: 'Capsule | Oral', schedule: '1 cap OD (With lunch)', duration: '30 Days', refills: 'No Refill' }
-  ]);
+  useEffect(() => {
+    async function loadEncounterData() {
+      if (!appointmentId) return;
+      setLoading(true);
+      try {
+        const appt = await appointmentService.getAppointmentById(appointmentId);
+        setAppointment(appt);
+
+        if (appt) {
+          setChiefComplaint(appt.symptoms_summary || '');
+
+          // Update appointment status to in_progress if currently scheduled
+          if (appt.status === 'scheduled' || appt.status === 'requested') {
+            await appointmentService.updateStatus(appointmentId, 'in_progress');
+          }
+
+          // Hydrate patient clinical details
+          if (appt.patient_id) {
+            const [allergies, records, reports, existingCons] = await Promise.all([
+              medicalRecordsService.getAllergies(appt.patient_id).catch(() => []),
+              medicalRecordsService.getRecords(appt.patient_id).catch(() => []),
+              reportService.getReports(appt.patient_id).catch(() => []),
+              consultationService.getByAppointment(appointmentId).catch(() => null)
+            ]);
+
+            setPatientAllergies(allergies || []);
+            setPatientRecords(records || []);
+            setPatientReports(reports || []);
+            
+            if (existingCons) {
+              setExistingConsultation(existingCons);
+              setChiefComplaint(existingCons.chief_complaint || appt.symptoms_summary || '');
+              setClinicalSummary(existingCons.clinical_summary || '');
+              setDiagnosis(existingCons.diagnosis || '');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Encounter hydration error:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadEncounterData();
+  }, [appointmentId]);
 
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const handleSignDsc = async () => {
-    showToast('Cryptographically signing encounter with DSC Clinician Token...');
+  const handleSaveConsultation = async (markComplete = false) => {
+    if (!diagnosis.trim()) {
+      alert('Clinical Diagnosis is mandatory before saving the encounter.');
+      return;
+    }
+
+    setSavingEncounter(true);
     try {
-      const res = await consultationService.signConsultationDsc(
+      const fullSummary = `
+[Clinical Observations]: ${clinicalSummary || 'Clinical exam performed.'}
+[Treatment Plan]: ${treatmentPlan || 'Conservative supportive care.'}
+[Follow-Up]: ${followUpNotes || 'PRN / As needed.'}
+      `.trim();
+
+      await consultationService.recordConsultation({
         appointmentId,
-        profile?.id || '00000000-0000-0000-0000-000000000000',
-        {
-          subjective: clinicalNotes,
-          objective: 'BP 118/74, Pulse 72, O2 98%',
-          assessment: 'Post-viral autonomic lability',
-          plan: medicines.map(m => m.name).join(', ')
-        }
-      );
-      if (res?.success) {
-        showToast(`✓ Encounter Signed! DSC Token: ${res.dsc_token}`);
+        doctorId,
+        patientId: appointment.patient_id,
+        chiefComplaint: chiefComplaint || 'Routine assessment',
+        clinicalSummary: fullSummary,
+        diagnosis: diagnosis.trim()
+      });
+
+      showToast('✓ Consultation record and clinical notes saved to EHR vault!');
+
+      if (markComplete) {
+        showToast('✓ Encounter concluded and appointment marked as completed.');
+        setTimeout(() => {
+          navigate('/doctor/appointments');
+        }, 1200);
       }
     } catch (err) {
-      showToast(`Signing notice: ${err.message}`);
+      alert('Failed to save encounter: ' + err.message);
+    } finally {
+      setSavingEncounter(false);
     }
   };
 
-  const removeMed = (id) => {
-    setMedicines(prev => prev.filter(m => m.id !== id));
-  };
+  if (loading) {
+    return (
+      <div style={{ padding: '80px', textAlign: 'center', fontFamily: 'Inter, system-ui, sans-serif' }}>
+        <RefreshCw className="animate-spin" size={32} color="#0f766e" style={{ margin: '0 auto 12px auto' }} />
+        <p style={{ color: '#64748b', fontSize: '14px', fontWeight: '600' }}>Initializing Secure Teleconsultation Workspace...</p>
+      </div>
+    );
+  }
 
-  const addQuickMed = (name, type = 'Tablet | Oral') => {
-    setMedicines(prev => [
-      ...prev,
-      { id: Date.now(), name, type, schedule: '1 tab OD (After meals)', duration: '30 Days', refills: 'Refills: 1 Allowed' }
-    ]);
-  };
+  if (!appointment) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'Inter, system-ui, sans-serif' }}>
+        <AlertTriangle size={36} color="#dc2626" style={{ margin: '0 auto 12px auto' }} />
+        <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>Appointment Encounter Not Found</h3>
+        <p style={{ color: '#64748b', fontSize: '13px' }}>The specified appointment ID could not be loaded or access is restricted.</p>
+        <Link to="/doctor/appointments" style={{ color: '#0f766e', fontWeight: '700', fontSize: '13px' }}>
+          ← Return to Appointment Queue
+        </Link>
+      </div>
+    );
+  }
+
+  const patient = appointment.patient || {};
+  const patientName = patient.full_name || 'Authorized Patient';
 
   return (
-    <div style={{ background: '#f8fafc', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+    <div style={{ background: '#f8fafc', minHeight: '100vh', padding: '20px 24px', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
-      {/* Top Clinical Header Bar */}
-      <div style={{
-        background: '#ffffff',
-        borderBottom: '1px solid #e2e8f0',
-        padding: '12px 24px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '20px'
-      }}>
-        {/* Search */}
-        <div style={{ position: 'relative', flex: 1, maxWidth: '600px' }}>
-          <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-          <input 
-            type="text"
-            placeholder="Search patients, MRN, lab orders, or clinical protocols..."
-            style={{
-              width: '100%',
-              padding: '9px 12px 9px 36px',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              fontSize: '13px',
-              outline: 'none',
-              background: '#f8fafc'
-            }}
-          />
-          <span style={{
-            position: 'absolute',
-            right: '10px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            fontSize: '11px',
-            fontWeight: '600',
-            color: '#94a3b8',
-            background: '#ffffff',
-            border: '1px solid #cbd5e1',
-            borderRadius: '4px',
-            padding: '2px 5px'
-          }}>⌘K</span>
-        </div>
-
-        {/* Right Status Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            background: '#dcfce7',
-            color: '#166534',
-            fontSize: '12px',
-            fontWeight: '700',
-            padding: '6px 12px',
-            borderRadius: '9999px'
-          }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e' }}></span>
-            Cloud Sync: Active
-          </span>
-
-          <button 
-            onClick={() => showToast('🚨 Code Blue Protocol broadcasted.')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#fee2e2',
-              color: '#b91c1c',
-              border: '1px solid #fca5a5',
-              fontSize: '12px',
-              fontWeight: '700',
-              padding: '6px 14px',
-              borderRadius: '9999px',
-              cursor: 'pointer'
-            }}
-          >
-            <span>☢</span> Code Blue Alert
-          </button>
-
-          <div style={{ position: 'relative', cursor: 'pointer' }}>
-            <Bell size={20} color="#475569" />
-            <span style={{ position: 'absolute', top: '-2px', right: '-2px', width: '8px', height: '8px', background: '#dc2626', borderRadius: '50%' }}></span>
-          </div>
-
-          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#0a4bb5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '13px' }}>
-            SC
-          </div>
-        </div>
-      </div>
-
+      {/* Toast */}
       {toastMessage && (
-        <div style={{ background: '#0a4bb5', color: '#ffffff', padding: '10px 24px', fontSize: '13px', fontWeight: '700', textAlign: 'center' }}>
-          {toastMessage}
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          background: '#0f766e',
+          color: '#ffffff',
+          padding: '12px 20px',
+          borderRadius: '8px',
+          fontWeight: '700',
+          fontSize: '13px',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <CheckCircle2 size={16} /> {toastMessage}
         </div>
       )}
 
-      {/* Main Container */}
-      <div style={{ padding: '20px 24px', maxWidth: '1440px', margin: '0 auto' }}>
-        
-        {/* Patient Status Header Card */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e2e8f0',
-          padding: '14px 20px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '16px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '10px',
-              background: '#eff6ff',
-              color: '#0a4bb5',
-              display: 'flex',
+      {/* Top Breadcrumb & Status Bar */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '16px',
+        flexWrap: 'wrap',
+        gap: '12px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Link
+            to="/doctor/appointments"
+            style={{
+              display: 'inline-flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: '800',
-              fontSize: '16px',
-              border: '1px solid #bfdbfe'
-            }}>
-              PN
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h2 style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Priya Nair</h2>
-                <span style={{ fontSize: '12px', color: '#475569', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontWeight: '600' }}>38Y, Female</span>
-                <span style={{ fontSize: '12px', color: '#0a4bb5', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px', fontWeight: '700' }}>Blood Group: B+</span>
-                <span style={{ background: '#dcfce7', color: '#166534', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '4px' }}>
-                  Routine Follow-up & Post-Viral
-                </span>
-              </div>
-              <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span><strong>ABHA ID:</strong> 91-4492-1082-7712</span>
-                <span>•</span>
-                <span style={{ color: '#16a34a', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
-                  <Lock size={12} /> Live Encrypted Session (WebRTC HD)
-                </span>
-                <span>•</span>
-                <span style={{ color: '#0a4bb5', fontWeight: '800' }}>14:36</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Real-Time Patient Vitals */}
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Heart size={18} color="#dc2626" />
-              <div>
-                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', display: 'block' }}>HEART RATE</span>
-                <strong style={{ fontSize: '13px', color: '#0f172a' }}>78 <span style={{ fontSize: '11px', fontWeight: 'normal' }}>bpm</span></strong>
-              </div>
-            </div>
-
-            <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: '8px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Activity size={18} color="#dc2626" />
-              <div>
-                <span style={{ fontSize: '10px', color: '#b91c1c', fontWeight: '700', display: 'block' }}>BLOOD PRESSURE</span>
-                <strong style={{ fontSize: '13px', color: '#dc2626' }}>138/88 <span style={{ fontSize: '10.5px', fontWeight: '700', color: '#b91c1c' }}>Mildly High</span></strong>
-              </div>
-            </div>
-
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Activity size={18} color="#0284c7" />
-              <div>
-                <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', display: 'block' }}>SPO2</span>
-                <strong style={{ fontSize: '13px', color: '#0f172a' }}>99% <span style={{ fontSize: '10.5px', color: '#16a34a' }}>Normal</span></strong>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 2-Column Split: Telehealth Video + Ambient Scribe (Left) vs ABDM Rx Pad (Right) */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.45fr 1fr', gap: '20px' }}>
-          
-          {/* LEFT: Video Stream & Ambient Clinical Scribe */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            
-            {/* Video Call Window */}
-            <div style={{
-              position: 'relative',
-              background: '#090d16',
-              borderRadius: '14px',
-              height: '340px',
-              overflow: 'hidden',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.15)'
-            }}>
-              {/* Simulated Patient Video Stream */}
-              <div style={{
-                width: '100%',
-                height: '100%',
-                background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff'
-              }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#3b82f6', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: '800', margin: '0 auto 12px auto' }}>
-                    PN
-                  </div>
-                  <h4 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>Priya Nair</h4>
-                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>WebRTC HD Video Stream Active</span>
-                </div>
-              </div>
-
-              {/* Top Overlays */}
-              <div style={{ position: 'absolute', top: '12px', left: '14px', display: 'flex', gap: '8px' }}>
-                <span style={{ background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', color: '#ffffff', fontSize: '11px', fontWeight: '700', padding: '4px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ef4444' }}></span>
-                  HD • 60 FPS • 128 kbps OPUS
-                </span>
-                <span style={{ background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', color: '#60a5fa', fontSize: '11px', fontWeight: '700', padding: '4px 10px', borderRadius: '6px' }}>
-                  ABDM Tele-Verified
-                </span>
-              </div>
-
-              {/* PiP Doctor Window */}
-              <div style={{
-                position: 'absolute',
-                bottom: '16px',
-                right: '16px',
-                width: '130px',
-                height: '95px',
-                background: '#1e293b',
-                borderRadius: '10px',
-                border: '2px solid rgba(255,255,255,0.2)',
-                overflow: 'hidden',
-                boxShadow: '0 4px 10px rgba(0,0,0,0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ffffff'
-              }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#0a4bb5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '800', margin: '0 auto 4px auto' }}>
-                    SC
-                  </div>
-                  <span style={{ fontSize: '10px', fontWeight: '700', color: '#e2e8f0' }}>Dr. Sarah Chen (You)</span>
-                </div>
-              </div>
-
-              {/* Floating Bottom Call Controls */}
-              <div style={{
-                position: 'absolute',
-                bottom: '16px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                background: 'rgba(15, 23, 42, 0.85)',
-                backdropFilter: 'blur(8px)',
-                padding: '8px 16px',
-                borderRadius: '9999px',
-                border: '1px solid rgba(255,255,255,0.1)'
-              }}>
-                <button 
-                  onClick={() => setMicOn(!micOn)}
-                  style={{ background: micOn ? 'rgba(255,255,255,0.15)' : '#dc2626', border: 'none', width: '36px', height: '36px', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                >
-                  {micOn ? <Mic size={16} /> : <MicOff size={16} />}
-                </button>
-                <button 
-                  onClick={() => setCamOn(!camOn)}
-                  style={{ background: camOn ? 'rgba(255,255,255,0.15)' : '#dc2626', border: 'none', width: '36px', height: '36px', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                >
-                  {camOn ? <Video size={16} /> : <VideoOff size={16} />}
-                </button>
-                <button 
-                  onClick={() => showToast('Screen sharing activated')}
-                  style={{ background: 'rgba(255,255,255,0.15)', border: 'none', width: '36px', height: '36px', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                >
-                  <Monitor size={16} />
-                </button>
-                <button 
-                  onClick={() => showToast('Snapshot saved to clinical encounter record')}
-                  style={{ background: 'rgba(255,255,255,0.15)', border: 'none', width: '36px', height: '36px', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                >
-                  <Camera size={16} />
-                </button>
-                <button 
-                  onClick={() => { setInCall(false); showToast('Teleconsultation concluded. Encrypted notes committed to EHR.'); }}
-                  style={{ background: '#dc2626', border: 'none', padding: '8px 16px', borderRadius: '9999px', color: '#ffffff', fontSize: '12px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-                >
-                  <PhoneOff size={15} /> End
-                </button>
-              </div>
-            </div>
-
-            {/* Audio Waveform Bar */}
-            <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', fontWeight: '800', color: '#64748b' }}>
-                <Activity size={15} color="#16a34a" /> PATIENT AUDIO CHANNEL
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                {[14, 28, 42, 20, 36, 12, 40, 24, 32, 18, 22].map((h, idx) => (
-                  <span key={idx} style={{ width: '3px', height: `${h * 0.4}px`, background: '#16a34a', borderRadius: '2px' }}></span>
-                ))}
-              </div>
-              <span style={{ fontSize: '11px', fontWeight: '700', color: '#16a34a' }}>Active Speech</span>
-            </div>
-
-            {/* Ambient Clinical Scribe */}
-            <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '18px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Sparkles size={18} color="#0a4bb5" />
-                  <div>
-                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: 0 }}>
-                      Ambient Clinical Scribe
-                    </h3>
-                    <span style={{ fontSize: '10.5px', color: '#64748b' }}>ICD-10 & SNOMED CT AUTO-TAGGING</span>
-                  </div>
-                </div>
-                <span style={{ background: '#dcfce7', color: '#166534', fontSize: '11px', fontWeight: '700', padding: '3px 8px', borderRadius: '4px' }}>
-                  ● NLP Sync 98.6%
-                </span>
-              </div>
-
-              {/* Transcript Speech Bubble Box */}
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', fontSize: '12px', marginBottom: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#64748b', marginBottom: '2px' }}>
-                    <strong style={{ color: '#0a4bb5' }}>Dr. Sarah Chen (Attending)</strong>
-                    <span>14:31:02</span>
-                  </div>
-                  <p style={{ margin: 0, color: '#1e293b', lineHeight: '1.4' }}>
-                    "Priya, have you noticed any recurring morning headaches with these episodic dizziness episodes, or is it isolated during postural transitions?"
-                  </p>
-                </div>
-
-                <div style={{ borderTop: '1px dashed #e2e8f0', paddingTop: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#64748b', marginBottom: '2px' }}>
-                    <strong style={{ color: '#0f172a' }}>Priya Nair (Patient)</strong>
-                    <span>14:31:25</span>
-                  </div>
-                  <p style={{ margin: 0, color: '#1e293b', lineHeight: '1.4' }}>
-                    "No throbbing headaches doctor, but sudden sitting-to-standing feels dizzy. Also I had mild heart palpitations while climbing stairs yesterday afternoon."
-                  </p>
-                </div>
-              </div>
-
-              {/* Real-Time Extracted Entities */}
-              <div style={{ marginBottom: '16px' }}>
-                <span style={{ fontSize: '10.5px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', letterSpacing: '0.04em' }}>
-                  REAL-TIME EXTRACTED ENTITIES
-                </span>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                  <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '8px' }}>
-                    <span style={{ fontSize: '10px', color: '#1e40af', fontWeight: '800', display: 'block' }}>SYMPTOMS (SNOMED)</span>
-                    <strong style={{ fontSize: '11.5px', color: '#1e293b' }}>Dizziness (mild, episodic), Palpitations</strong>
-                  </div>
-                  <div style={{ background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '6px', padding: '8px' }}>
-                    <span style={{ fontSize: '10px', color: '#b91c1c', fontWeight: '800', display: 'block' }}>ALLERGIES (VERIFIED)</span>
-                    <strong style={{ fontSize: '11.5px', color: '#991b1b' }}>Penicillin: Severe (Hives)</strong>
-                  </div>
-                  <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '6px', padding: '8px' }}>
-                    <span style={{ fontSize: '10px', color: '#6d28d9', fontWeight: '800', display: 'block' }}>DIFFERENTIAL DIAGNOSIS</span>
-                    <strong style={{ fontSize: '11.5px', color: '#4c1d95' }}>Secondary HTN (87% Conf.)</strong>
-                  </div>
-                </div>
-              </div>
-
-              {/* SOAP Notes Container */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {['Subjective (S)', 'Objective (O)', 'Assessment (A)', 'Plan (P)'].map(tab => (
-                      <button
-                        key={tab}
-                        onClick={() => setActiveSoapTab(tab[0])}
-                        style={{
-                          background: activeSoapTab === tab[0] ? '#0a4bb5' : '#ffffff',
-                          color: activeSoapTab === tab[0] ? '#ffffff' : '#475569',
-                          border: '1px solid #cbd5e1',
-                          padding: '4px 10px',
-                          borderRadius: '6px',
-                          fontSize: '11.5px',
-                          fontWeight: '700',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button 
-                    onClick={() => {
-                      setClinicalNotes(prev => prev + '\n[AI Generated]: Patient experiences episodic postural lightheadedness and exertional palpitations without overt syncope.');
-                      showToast('AI Clinical Summary synthesized into SOAP note');
-                    }}
-                    style={{
-                      background: '#f0fdf4',
-                      color: '#166534',
-                      border: '1px solid #bbf7d0',
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: '800',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <Sparkles size={12} /> Insert AI Summary
-                  </button>
-                </div>
-
-                <textarea
-                  value={clinicalNotes}
-                  onChange={(e) => setClinicalNotes(e.target.value)}
-                  placeholder="Doctor's clinical notes..."
-                  style={{
-                    width: '100%',
-                    height: '90px',
-                    padding: '10px',
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '12px',
-                    color: '#1e293b',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                    lineHeight: '1.4'
-                  }}
-                />
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#94a3b8', marginTop: '6px' }}>
-                  <span>Voice typing enabled • Auto-saving to FHIR Encounter resource</span>
-                  <span style={{ color: '#16a34a', fontWeight: '700' }}>FHIR R4 Synthesized</span>
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-
-          {/* RIGHT: ABDM Digital Rx Pad & Labs Order */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            
-            {/* Rx Pad Card */}
-            <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '20px' }}>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#0a4bb5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '14px' }}>
-                    ℞
-                  </div>
-                  <div>
-                    <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: 0 }}>
-                      ABDM Digital Rx Pad
-                    </h3>
-                    <span style={{ fontSize: '10px', color: '#64748b' }}>M3 CERTIFIED ENGINE</span>
-                  </div>
-                </div>
-                <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>
-                  RxID: 2025-08192-DEL
-                </span>
-              </div>
-
-              {/* Drug Safety Alert Guard Banner */}
-              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 12px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <ShieldCheck size={18} color="#16a34a" />
-                <div style={{ fontSize: '11.5px', color: '#166534', lineHeight: '1.35' }}>
-                  <strong>Drug Safety & Allergy Guard Active:</strong> 0 High-Risk Drug-Drug interactions detected. Verified against patient's Penicillin allergy profile.
-                </div>
-              </div>
-
-              {/* Prescribed Items List */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
-                {medicines.map((med) => (
-                  <div key={med.id} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px', position: 'relative' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ fontSize: '13px', color: '#0f172a' }}>{med.name}</strong>
-                      <button 
-                        onClick={() => removeMed(med.id)}
-                        style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px' }}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                    <span style={{ fontSize: '10.5px', color: '#64748b', display: 'block', marginTop: '1px' }}>{med.type}</span>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', fontSize: '11px', color: '#334155' }}>
-                      <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: '600' }}>{med.schedule}</span>
-                      <span style={{ color: '#16a34a', fontWeight: '700' }}>{med.duration}</span>
-                      <span style={{ color: '#64748b' }}>{med.refills}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Medicine Search input */}
-              <div style={{ position: 'relative', marginBottom: '10px' }}>
-                <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                <input 
-                  type="text"
-                  placeholder="+ Search Pharmacopeia / Generic / Brand..."
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px 8px 32px',
-                    borderRadius: '6px',
-                    border: '1px dashed #cbd5e1',
-                    fontSize: '12px',
-                    outline: 'none',
-                    background: '#f8fafc'
-                  }}
-                />
-              </div>
-
-              {/* Quick Select Meds */}
-              <div style={{ display: 'flex', gap: '6px', marginBottom: '18px', flexWrap: 'wrap', alignItems: 'center' }}>
-                <span style={{ fontSize: '10.5px', color: '#64748b', fontWeight: '700' }}>Quick Select:</span>
-                {['+ Amlodipine 5mg', '+ Atorvastatin 10mg', '+ Pantoprazole 40mg'].map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => addQuickMed(q.replace('+ ', ''))}
-                    style={{
-                      background: '#f8fafc',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '4px',
-                      padding: '3px 8px',
-                      fontSize: '11px',
-                      fontWeight: '600',
-                      color: '#0a4bb5',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-
-              {/* Laboratory & Diagnostics Order */}
-              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '14px', marginBottom: '18px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#0f172a' }}>
-                    LABORATORY & DIAGNOSTICS ORDER
-                  </span>
-                  <span style={{ fontSize: '10.5px', color: '#16a34a', fontWeight: '700' }}>Pathology Connected</span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11.5px', color: '#334155' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: '#f8fafc', borderRadius: '6px' }}>
-                    <span>Serum Electrolytes (Na+, K+, Cl-)</span>
-                    <span style={{ color: '#64748b', fontSize: '10.5px' }}>Fasting</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: '#f8fafc', borderRadius: '6px' }}>
-                    <span>Lipid Panel Complete (Fasting)</span>
-                    <span style={{ color: '#64748b', fontSize: '10.5px' }}>Fasting</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: '#f8fafc', borderRadius: '6px' }}>
-                    <span>2D Echocardiography & Color Doppler</span>
-                    <span style={{ color: '#0a4bb5', fontSize: '10.5px', fontWeight: '700' }}>Cardio Dept</span>
-                  </div>
-                </div>
-
-                <span style={{ fontSize: '10.5px', color: '#16a34a', display: 'block', marginTop: '6px' }}>
-                  ✓ Auto-scheduled for tomorrow at 08:00 AM (Home Sample Collection Opted)
-                </span>
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <button 
-                  onClick={handleSignDsc}
-                  style={{
-                    width: '100%',
-                    background: '#0a4bb5',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '11px',
-                    fontSize: '13px',
-                    fontWeight: '800',
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 4px rgba(10, 75, 181, 0.25)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  <ShieldCheck size={16} /> Sign with Digital Clinician Token (DSC)
-                </button>
-
-                <button 
-                  onClick={() => showToast('Prescription dispatched to Priya Nair ABHA Health Locker and SMS notification sent.')}
-                  style={{
-                    width: '100%',
-                    background: '#eff6ff',
-                    color: '#0a4bb5',
-                    border: '1px solid #bfdbfe',
-                    borderRadius: '8px',
-                    padding: '10px',
-                    fontSize: '12px',
-                    fontWeight: '800',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Send size={14} /> Send Rx to ABHA Health Locker & SMS
-                </button>
-              </div>
-
-            </div>
-
-            {/* Next in Queue Card */}
-            <div style={{
-              background: '#ffffff',
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0',
-              padding: '14px 18px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              cursor: 'pointer'
+              gap: '4px',
+              color: '#64748b',
+              fontSize: '13px',
+              textDecoration: 'none',
+              fontWeight: '600'
             }}
-            onClick={() => showToast('Next patient Rajesh Kumar queued for check-in.')}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#fee2e2', color: '#b91c1c', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '800' }}>
-                  RK
-                </div>
-                <div>
-                  <span style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', display: 'block' }}>NEXT IN QUEUE (WAITING IN LOBBY)</span>
-                  <strong style={{ fontSize: '13px', color: '#0f172a' }}>Rajesh Kumar • Post-Op Cardiac Follow-up</strong>
-                </div>
+          >
+            <ArrowLeft size={14} /> Back to Queue
+          </Link>
+          <span style={{ color: '#cbd5e1' }}>/</span>
+          <span style={{ fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>
+            Encounter: {appointment.appointment_number}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{
+            background: '#ccfbf1',
+            color: '#0f766e',
+            fontSize: '11px',
+            fontWeight: '800',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px'
+          }}>
+            <Lock size={12} /> Clinical Access Bridge Active
+          </span>
+          <span style={{
+            background: appointment.status === 'completed' ? '#dcfce7' : '#fef3c7',
+            color: appointment.status === 'completed' ? '#166534' : '#92400e',
+            fontSize: '11px',
+            fontWeight: '700',
+            padding: '4px 10px',
+            borderRadius: '6px',
+            textTransform: 'uppercase'
+          }}>
+            Status: {appointment.status}
+          </span>
+        </div>
+      </div>
+
+      {/* 2-Column Clinical Layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 1fr', gap: '20px' }}>
+        
+        {/* LEFT COLUMN: Telehealth Stream + Patient Longitudinal EHR Context */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          
+          {/* Telehealth Provider Component (Abstraction layer) */}
+          <VideoConsultationProvider
+            appointment={appointment}
+            patient={patient}
+            doctor={appointment.doctor}
+            onEndConsultation={() => handleSaveConsultation(true)}
+            sessionStatus={appointment.status}
+          />
+
+          {/* Patient Demographic & Baseline Vitals Card */}
+          <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '18px 20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', margin: '0 0 2px 0' }}>
+                  {patientName}
+                </h3>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  ABHA: {patient.abha_id || '91-XXXX-XXXX'} • Blood Group: {patient.blood_group || 'O+'} • Phone: {patient.phone || 'N/A'}
+                </span>
               </div>
-              <ChevronRight size={18} color="#94a3b8" />
+              <Link
+                to={`/doctor/records?patientId=${appointment.patient_id}`}
+                target="_blank"
+                style={{
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  color: '#0f766e',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                Full EHR Vault <ExternalLink size={12} />
+              </Link>
             </div>
 
+            {/* Vitals Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '12px' }}>
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '10.5px', fontWeight: '700', color: '#64748b', display: 'block' }}>BLOOD PRESSURE</span>
+                <strong style={{ fontSize: '13px', color: '#0f172a' }}>
+                  {patient.bp_systolic || '120'}/{patient.bp_diastolic || '80'} <span style={{ fontSize: '10px', color: '#64748b' }}>mmHg</span>
+                </strong>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '10.5px', fontWeight: '700', color: '#64748b', display: 'block' }}>BLOOD SUGAR</span>
+                <strong style={{ fontSize: '13px', color: '#0f172a' }}>
+                  {patient.blood_sugar || '98'} <span style={{ fontSize: '10px', color: '#64748b' }}>mg/dL</span>
+                </strong>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '10.5px', fontWeight: '700', color: '#64748b', display: 'block' }}>BMI INDEX</span>
+                <strong style={{ fontSize: '13px', color: '#0f172a' }}>
+                  {patient.bmi || '23.4'} <span style={{ fontSize: '10px', color: '#64748b' }}>Normal</span>
+                </strong>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '10.5px', fontWeight: '700', color: '#64748b', display: 'block' }}>EMERGENCY CONTACT</span>
+                <strong style={{ fontSize: '12px', color: '#0f172a' }}>
+                  {patient.emergency_contact || 'None listed'}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          {/* Reported Symptoms & Allergies */}
+          <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '18px 20px' }}>
+            <h4 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: '0 0 10px 0' }}>
+              Reported Symptoms & Clinical Context
+            </h4>
+            <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '14px' }}>
+              <p style={{ fontSize: '13px', color: '#334155', margin: 0, fontWeight: '500' }}>
+                {appointment.symptoms_summary || 'Patient did not provide detailed symptoms summary.'}
+              </p>
+              {appointment.patient_notes && (
+                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '6px', fontStyle: 'italic' }}>
+                  Patient Private Notes: "{appointment.patient_notes}"
+                </div>
+              )}
+            </div>
+
+            {/* Documented Allergies */}
+            <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#0f172a', margin: '0 0 8px 0' }}>
+              Documented Patient Allergies ({patientAllergies.length})
+            </h4>
+            {patientAllergies.length === 0 ? (
+              <span style={{ fontSize: '12px', color: '#16a34a', background: '#f0fdf4', padding: '3px 8px', borderRadius: '4px', display: 'inline-block' }}>
+                ✓ No known drug allergies (NKDA) recorded
+              </span>
+            ) : (
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {patientAllergies.map(alg => (
+                  <span
+                    key={alg.id}
+                    style={{
+                      background: '#fee2e2',
+                      color: '#b91c1c',
+                      fontSize: '11px',
+                      fontWeight: '700',
+                      padding: '3px 8px',
+                      borderRadius: '4px'
+                    }}
+                  >
+                    ⚠ {alg.allergen} ({alg.severity || 'Moderate'})
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Assistive AI Insights Panel (Clinical Guardrail Embedded) */}
+          <div style={{
+            background: '#faf5ff',
+            border: '1px solid #e9d5ff',
+            borderRadius: '12px',
+            padding: '16px 20px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#7c3aed', fontWeight: '800', fontSize: '13px' }}>
+                <Sparkles size={16} /> AI Assistive Clinical Telemetry
+              </div>
+              <span style={{ fontSize: '10.5px', fontWeight: '800', background: '#ede9fe', color: '#6d28d9', padding: '2px 6px', borderRadius: '4px' }}>
+                ASSISTIVE ONLY
+              </span>
+            </div>
+
+            <p style={{ fontSize: '12px', color: '#581c87', margin: '0 0 10px 0', lineHeight: 1.4 }}>
+              <strong>Clinical Guardrail:</strong> AI inferences provide preliminary pattern recognition based on patient symptom profiles.
+              AI does not autonomously diagnose or prescribe. Final clinical assessment rests strictly with the licensed practitioner.
+            </p>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => {
+                  setAiSuggestionsViewed(true);
+                  showToast('AI preliminary differential: Acute Upper Respiratory Tract Infection (78% confidence). Click to manually adopt if confirmed by clinical judgment.');
+                }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  background: '#7c3aed',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontSize: '11.5px',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                Inspect AI Diagnostic Differential
+              </button>
+            </div>
           </div>
 
         </div>
 
-        {/* Footer */}
-        <div style={{
-          borderTop: '1px solid #e2e8f0',
-          marginTop: '32px',
-          paddingTop: '16px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          fontSize: '11px',
-          color: '#64748b'
-        }}>
-          <div>
-            © 2025 MediMind Clinical Intelligence Engine. All clinical decisions subject to physician sign-off.
+        {/* RIGHT COLUMN: Doctor Clinical Workspace & Encounter Documentation */}
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+            <div>
+              <h2 style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', margin: 0 }}>
+                Clinical Encounter Workspace
+              </h2>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                Clinician: Dr. {appointment.doctor?.full_name || profile?.full_name}
+              </span>
+            </div>
+
+            <Link
+              to={`/doctor/prescribe?patientId=${appointment.patient_id}&appointmentId=${appointmentId}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                background: '#eff6ff',
+                color: '#1d4ed8',
+                fontSize: '12px',
+                fontWeight: '700',
+                textDecoration: 'none',
+                border: '1px solid #bfdbfe'
+              }}
+            >
+              <FilePlus2 size={13} /> Open Digital Rx Pad
+            </Link>
           </div>
-          <div style={{ display: 'flex', gap: '18px' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <ShieldCheck size={13} color="#16a34a" /> HIPAA Encrypted
-            </span>
-            <span>FHIR R4 v4.0.1</span>
-            <span>SOC2 Type II Certified</span>
-            <span>Emergency Protocols</span>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+            
+            {/* Chief Complaint */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                Chief Complaint (Subjective) *
+              </label>
+              <input
+                type="text"
+                value={chiefComplaint}
+                onChange={(e) => setChiefComplaint(e.target.value)}
+                placeholder="e.g. Dry cough, mild sore throat for 3 days"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '13px',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
+            {/* Objective Exam & Clinical Observations */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                Clinical Observations & Examination (Objective)
+              </label>
+              <textarea
+                rows="3"
+                value={clinicalSummary}
+                onChange={(e) => setClinicalSummary(e.target.value)}
+                placeholder="Physical exam findings, throat erythema, clear chest on auscultation..."
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '13px',
+                  outline: 'none',
+                  fontFamily: 'inherit'
+                }}
+              ></textarea>
+            </div>
+
+            {/* Confirmed Diagnosis */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '800', color: '#0f766e', marginBottom: '4px' }}>
+                Clinician-Authored Diagnosis * (Mandatory)
+              </label>
+              <input
+                type="text"
+                value={diagnosis}
+                onChange={(e) => setDiagnosis(e.target.value)}
+                placeholder="e.g. Acute Viral Pharyngitis (ICD-10 J02.9)"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '2px solid #0f766e',
+                  fontSize: '13.5px',
+                  fontWeight: '600',
+                  outline: 'none'
+                }}
+              />
+              <span style={{ fontSize: '11px', color: '#64748b', marginTop: '3px', display: 'block' }}>
+                Must be authored and confirmed by the attending physician.
+              </span>
+            </div>
+
+            {/* Treatment Plan */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                Treatment Plan & Care Recommendations
+              </label>
+              <textarea
+                rows="3"
+                value={treatmentPlan}
+                onChange={(e) => setTreatmentPlan(e.target.value)}
+                placeholder="Hydration, saline gargles, warm fluids, rest..."
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '13px',
+                  outline: 'none',
+                  fontFamily: 'inherit'
+                }}
+              ></textarea>
+            </div>
+
+            {/* Follow-up Notes */}
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                Follow-up & Warning Signs
+              </label>
+              <input
+                type="text"
+                value={followUpNotes}
+                onChange={(e) => setFollowUpNotes(e.target.value)}
+                placeholder="e.g. Return if fever persists beyond 48 hours or dyspnea develops"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '13px',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
           </div>
+
+          {/* Action Footer */}
+          <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button
+              onClick={() => handleSaveConsultation(false)}
+              disabled={savingEncounter}
+              style={{
+                padding: '9px 16px',
+                borderRadius: '8px',
+                background: '#f1f5f9',
+                border: '1px solid #cbd5e1',
+                color: '#334155',
+                fontSize: '13px',
+                fontWeight: '700',
+                cursor: savingEncounter ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {savingEncounter ? 'Saving...' : 'Save Draft Notes'}
+            </button>
+
+            <button
+              onClick={() => handleSaveConsultation(true)}
+              disabled={savingEncounter}
+              style={{
+                padding: '9px 20px',
+                borderRadius: '8px',
+                background: '#0f766e',
+                border: 'none',
+                color: '#ffffff',
+                fontSize: '13px',
+                fontWeight: '700',
+                cursor: savingEncounter ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 4px rgba(15, 118, 110, 0.2)'
+              }}
+            >
+              <CheckCircle2 size={15} />
+              {savingEncounter ? 'Recording...' : 'Conclude & Sign Encounter'}
+            </button>
+          </div>
+
         </div>
 
       </div>
+
     </div>
   );
 }

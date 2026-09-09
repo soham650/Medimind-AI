@@ -5,20 +5,50 @@ import { supabase } from '../lib/supabaseClient';
  * Manages medicine orders, atomic inventory decrementing, and delivery fulfillment.
  */
 export const orderService = {
-  // Place a new medicine order atomically with stock verification
-  async createOrder({ pharmacyId, prescriptionId = null, items, paymentMethod = 'online', deliveryAddress }) {
+  // Place a new medicine order atomically with stock verification (Migration 0009 FEFO)
+  async createOrder({ patientId, pharmacyId, prescriptionId = null, items, deliveryAddress, notes = '' }) {
+    // Determine authenticated patient ID if not passed
+    let pId = patientId;
+    if (!pId) {
+      const { data: { user } } = await supabase.auth.getUser();
+      pId = user?.id;
+    }
+    if (!pId) {
+      throw new Error('Authentication required: Patient must be signed in to place orders.');
+    }
+
+    const formattedItems = items.map(item => ({
+      medicine_id: item.medicine_id || item.id,
+      quantity: Number(item.quantity) || 1
+    }));
+
+    const orderNotes = notes || (prescriptionId ? `Attached Prescription: ${prescriptionId}` : '');
+
     const { data, error } = await supabase.rpc('create_medicine_order_tx', {
+      p_patient_id: pId,
       p_pharmacy_id: pharmacyId,
-      p_prescription_id: prescriptionId,
-      p_items: items.map(item => ({
-        id: item.id,
-        quantity: item.quantity
-      })),
-      p_payment_method: paymentMethod,
-      p_delivery_address: deliveryAddress
+      p_items: formattedItems,
+      p_delivery_address: deliveryAddress,
+      p_notes: orderNotes
     });
 
     if (error) throw new Error(this.friendlyError(error));
+    return data;
+  },
+
+  // Cancel pending medicine order
+  async cancelOrder(orderId) {
+    const { data, error } = await supabase
+      .from('medicine_orders')
+      .update({
+        order_status: 'cancelled',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', orderId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
     return data;
   },
 
@@ -62,9 +92,9 @@ export const orderService = {
   // Update order delivery/fulfillment state
   async updateOrderStatus(orderId, orderStatus) {
     const { data, error } = await supabase
-      .from('orders')
+      .from('medicine_orders')
       .update({
-        status: orderStatus,
+        order_status: orderStatus,
         updated_at: new Date().toISOString()
       })
       .eq('id', orderId)
@@ -75,26 +105,17 @@ export const orderService = {
     return data;
   },
 
-  // Module 5: Pharmacy Prescription Fulfillment & Inventory Deduct RPC
-  async fulfillPrescriptionOrder(orderId, pharmacyId, action = 'dispense') {
-    try {
-      const { data, error } = await supabase.rpc('pharmacy_fulfill_prescription_tx', {
-        p_order_id: orderId,
-        p_pharmacy_id: pharmacyId,
-        p_action: action
-      });
+  // Module 5: Pharmacy Prescription Fulfillment & Tracking RPC
+  async fulfillPrescriptionOrder(orderId, pharmacyId, trackingNumber = null) {
+    const tracking = trackingNumber || `TRACK-${Date.now().toString().slice(-8)}`;
+    const { data, error } = await supabase.rpc('pharmacy_fulfill_prescription_tx', {
+      p_order_id: orderId,
+      p_pharmacy_id: pharmacyId,
+      p_tracking_number: tracking
+    });
 
-      if (!error && data) return data;
-    } catch (e) {
-      console.warn('pharmacy_fulfill_prescription_tx RPC fallback:', e.message);
-    }
-
-    return {
-      success: true,
-      order_id: orderId,
-      status: action === 'dispense' ? 'dispensed' : action === 'dispatch' ? 'out_for_delivery' : 'confirmed',
-      updated_at: new Date().toISOString()
-    };
+    if (error) throw new Error(error.message);
+    return data;
   },
 
   friendlyError(err) {

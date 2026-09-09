@@ -60,6 +60,8 @@ import LabDiagnostics from './pages/patient/LabDiagnostics';
 import PatientOrders from './pages/patient/PatientOrders';
 import PatientAppointments from './pages/patient/PatientAppointments';
 import PatientProfile from './pages/patient/PatientProfile';
+import PatientSettings from './pages/patient/PatientSettings';
+import PatientNotifications from './pages/patient/PatientNotifications';
 
 // Doctor Portal Pages
 import DoctorDashboard from './pages/doctor/DoctorDashboard';
@@ -70,12 +72,16 @@ import AiInsights from './pages/doctor/AiInsights';
 import DoctorHealthRecords from './pages/doctor/DoctorHealthRecords';
 import DoctorAvailability from './pages/doctor/DoctorAvailability';
 import DoctorProfile from './pages/doctor/DoctorProfile';
+import DoctorAnalytics from './pages/doctor/DoctorAnalytics';
 
 // Pharmacy Portal Pages
 import PharmacyDashboard from './pages/pharmacy/PharmacyDashboard';
 import OrderProcessing from './pages/pharmacy/OrderProcessing';
 import InventoryManagement from './pages/pharmacy/InventoryManagement';
 import BatchManagement from './pages/pharmacy/BatchManagement';
+import MedicineCatalog from './pages/pharmacy/MedicineCatalog';
+import PharmacyVerification from './pages/pharmacy/PharmacyVerification';
+import PharmacyAnalytics from './pages/pharmacy/PharmacyAnalytics';
 import PharmacyProfile from './pages/pharmacy/PharmacyProfile';
 
 // Super Admin Portal Pages
@@ -121,11 +127,11 @@ function AppContent() {
 
   // Determine home landing redirection for testing and logged in users
   const getDefaultHome = () => {
-    if ((role === 'doctor' || role === 'pharmacy') && approvalStatus !== 'approved') {
+    if ((role === 'doctor' || role === 'pharmacy' || role === 'pharmacist') && approvalStatus !== 'approved') {
       return <Navigate to="/pending-approval" />;
     }
     if (role === 'doctor') return <Navigate to="/doctor/dashboard" />;
-    if (role === 'pharmacy') return <Navigate to="/pharmacy/dashboard" />;
+    if (role === 'pharmacy' || role === 'pharmacist') return <Navigate to="/pharmacy/dashboard" />;
     if (role === 'admin') return <Navigate to="/admin/dashboard" />;
     return <Navigate to="/predict" />;
   };
@@ -134,9 +140,9 @@ function AppContent() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={getDefaultHome()} />
-        {/* Testing Mode: Direct access to patient module without signup */}
-        <Route path="/login" element={<Navigate to="/predict" />} />
-        <Route path="/register" element={<Navigate to="/predict" />} />
+        {/* Real Supabase Authentication Routes */}
+        <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />
+        <Route path="/register" element={user ? <Navigate to="/dashboard" /> : <Register />} />
         
         {/* Admin Approval Gate waiting screen */}
         <Route path="/pending-approval" element={user ? <PendingApproval /> : <Navigate to="/login" />} />
@@ -160,6 +166,10 @@ function AppContent() {
                 <Route path="/orders" element={<PatientOrders />} />
                 <Route path="/patient/appointments" element={<PatientAppointments />} />
                 <Route path="/patient/profile" element={<PatientProfile />} />
+                <Route path="/patient/settings" element={<PatientSettings />} />
+                <Route path="/settings" element={<PatientSettings />} />
+                <Route path="/patient/notifications" element={<PatientNotifications />} />
+                <Route path="/notifications" element={<PatientNotifications />} />
                 <Route path="/labs" element={<LabDiagnostics />} />
                 <Route path="/reports" element={<ReportAnalyzer />} />
                 <Route path="/chat" element={<Chatbot />} />
@@ -178,15 +188,22 @@ function AppContent() {
                 <Route path="/doctor/profile" element={<DoctorProfile />} />
                 <Route path="/doctor/ai-insights" element={<AiInsights />} />
                 <Route path="/doctor/records" element={<DoctorHealthRecords />} />
+                <Route path="/doctor/patients/:patientId" element={<DoctorHealthRecords />} />
                 <Route path="/doctor/prescribe" element={<PrescriptionGenerator />} />
+                <Route path="/doctor/prescription" element={<PrescriptionGenerator />} />
+                <Route path="/doctor/analytics" element={<DoctorAnalytics />} />
                 <Route path="/analytics" element={<Analytics />} />
 
                 {/* Pharmacy Routes */}
                 <Route path="/pharmacy/dashboard" element={<PharmacyDashboard />} />
                 <Route path="/pharmacy/orders" element={<OrderProcessing />} />
+                <Route path="/pharmacy/orders/:id" element={<OrderProcessing />} />
                 <Route path="/pharmacy/inventory" element={<InventoryManagement />} />
                 <Route path="/pharmacy/inventory/batches" element={<BatchManagement />} />
                 <Route path="/pharmacy/batches" element={<BatchManagement />} />
+                <Route path="/pharmacy/medicines" element={<MedicineCatalog />} />
+                <Route path="/pharmacy/verification" element={<PharmacyVerification />} />
+                <Route path="/pharmacy/analytics" element={<PharmacyAnalytics />} />
                 <Route path="/pharmacy/profile" element={<PharmacyProfile />} />
 
                 {/* Super Admin Routes */}
@@ -219,7 +236,7 @@ function ApprovalGateGuard({ children }) {
   const location = useLocation();
 
   // In Testing Mode: bypass signup/login requirements
-  if ((role === 'doctor' || role === 'pharmacy') && approvalStatus !== 'approved') {
+  if ((role === 'doctor' || role === 'pharmacy' || role === 'pharmacist') && approvalStatus !== 'approved') {
     if (location.pathname !== '/pending-approval') {
       return <Navigate to="/pending-approval" />;
     }
@@ -233,9 +250,20 @@ function ApprovalGateGuard({ children }) {
  * Adapts Sidebar and Navigation according to the logged-in role (Patient, Doctor, Pharmacy, Admin)
  */
 function RoleBasedLayout({ children }) {
-  const { user, profile, role, logout, switchRole } = useAuth();
+  const { 
+    user, 
+    profile, 
+    role, 
+    logout, 
+    switchRole,
+    notifications,
+    unreadNotificationsCount,
+    markNotificationAsRead,
+    markAllNotificationsAsRead
+  } = useAuth();
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // Auto-sync role when visiting doctor or admin portal routes
   React.useEffect(() => {
@@ -245,8 +273,8 @@ function RoleBasedLayout({ children }) {
       switchRole('doctor');
     } else if ((location.pathname === '/admin' || location.pathname.startsWith('/admin/')) && role !== 'admin') {
       switchRole('admin');
-    } else if (location.pathname.startsWith('/pharmacy/') && role !== 'pharmacy') {
-      switchRole('pharmacy');
+    } else if (location.pathname.startsWith('/pharmacy/') && role !== 'pharmacy' && role !== 'pharmacist') {
+      switchRole('pharmacist');
     } else if (
       (location.pathname === '/predict' ||
        location.pathname === '/symptom-checker' ||
@@ -259,7 +287,12 @@ function RoleBasedLayout({ children }) {
        location.pathname === '/orders' ||
        location.pathname === '/patient/appointments' ||
        location.pathname === '/patient/profile' ||
+       location.pathname === '/patient/settings' ||
+       location.pathname === '/settings' ||
+       location.pathname === '/patient/notifications' ||
+       location.pathname === '/notifications' ||
        location.pathname === '/labs' ||
+       location.pathname === '/reports' ||
        location.pathname === '/twin' ||
        location.pathname === '/records') && role !== 'patient'
     ) {
@@ -276,17 +309,20 @@ function RoleBasedLayout({ children }) {
         { name: 'Availability & Slots', path: '/doctor/availability', icon: Clock },
         { name: 'Doctor Profile', path: '/doctor/profile', icon: UserCheck },
         { name: 'Issue Digital Rx', path: '/doctor/prescribe', icon: FilePlus2 },
-        { name: 'Clinical AI Chat', path: '/chat', icon: MessageSquare },
-        { name: 'Lab Reports', path: '/reports', icon: FileText },
-        { name: 'Trials Explorer', path: '/trials', icon: BookOpen }
+        { name: 'Patient EHR Vault', path: '/doctor/records', icon: FolderOpen },
+        { name: 'AI Clinical Telemetry', path: '/doctor/ai-insights', icon: Activity },
+        { name: 'Practice Analytics', path: '/doctor/analytics', icon: TrendingUp }
       ];
     }
-    if (role === 'pharmacy') {
+    if (role === 'pharmacy' || role === 'pharmacist') {
       return [
         { name: 'Pharmacy Dashboard', path: '/pharmacy/dashboard', icon: Store },
         { name: 'Prescription Orders', path: '/pharmacy/orders', icon: ShoppingBag },
         { name: 'Drug Inventory', path: '/pharmacy/inventory', icon: Package },
         { name: 'Batch & Expiry', path: '/pharmacy/inventory/batches', icon: Layers },
+        { name: 'Drug Catalog', path: '/pharmacy/medicines', icon: FileText },
+        { name: 'Accreditation', path: '/pharmacy/verification', icon: ShieldCheck },
+        { name: 'Pharmacy Analytics', path: '/pharmacy/analytics', icon: TrendingUp },
         { name: 'Dispensary Profile', path: '/pharmacy/profile', icon: Settings }
       ];
     }
@@ -303,19 +339,20 @@ function RoleBasedLayout({ children }) {
     // Default: Patient Menu
     return [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-      { name: '1. Symptom Checker', path: '/predict', icon: Activity },
-      { name: '2. Consult Doctors', path: '/doctors', icon: Stethoscope },
+      { name: 'Symptom Checker', path: '/predict', icon: Activity },
+      { name: 'Consult Doctors', path: '/doctors', icon: Stethoscope },
       { name: 'My Appointments', path: '/patient/appointments', icon: Calendar },
-      { name: '4. Digital Rx', path: '/prescriptions', icon: FileText },
-      { name: '5. Order Medicines', path: '/pharmacy', icon: Store },
+      { name: 'Prescriptions & Rx', path: '/prescriptions', icon: FileText },
+      { name: 'Pharmacy Store', path: '/pharmacy', icon: Store },
       { name: 'My Orders', path: '/patient/orders', icon: ShoppingBag },
       { name: 'Health Records', path: '/records', icon: FolderOpen },
       { name: 'Patient Twin', path: '/twin', icon: UserSquare2 },
+      { name: 'Notifications', path: '/patient/notifications', icon: Bell },
       { name: 'My Profile', path: '/patient/profile', icon: UserSquare2 },
+      { name: 'Settings', path: '/patient/settings', icon: Settings },
       { name: 'Clinical Chatbot', path: '/chat', icon: MessageSquare },
       { name: 'Report Analyzer', path: '/reports', icon: FileText },
-      { name: 'Trials Explorer', path: '/trials', icon: BookOpen },
-      { name: 'Billing', path: '/billing', icon: CreditCard }
+      { name: 'Trials Explorer', path: '/trials', icon: BookOpen }
     ];
   };
 
@@ -323,7 +360,7 @@ function RoleBasedLayout({ children }) {
 
   const getRoleBadge = () => {
     if (role === 'doctor') return { label: 'DOCTOR (APPROVED)', bg: '#dcfce7', text: '#166534' };
-    if (role === 'pharmacy') return { label: 'PHARMACY (LICENSED)', bg: '#eff6ff', text: '#1d4ed8' };
+    if (role === 'pharmacy' || role === 'pharmacist') return { label: 'PHARMACY (LICENSED)', bg: '#eff6ff', text: '#1d4ed8' };
     if (role === 'admin') return { label: 'SUPER ADMIN', bg: '#fef3c7', text: '#92400e' };
     return { label: 'PATIENT', bg: '#f1f5f9', text: '#334155' };
   };
@@ -623,43 +660,60 @@ function RoleBasedLayout({ children }) {
               </div>
             </div>
 
-            {/* Patient Workflow Navigation from screenshot */}
-            <ul className="sidebar-menu" style={{ padding: '10px 12px', listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {/* 1. Overview & Digital Twin */}
+            {/* Patient Workflow Navigation */}
+            <ul className="sidebar-menu" style={{ padding: '10px 12px', listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '4px', overflowY: 'auto', flex: 1 }}>
+              {/* 1. Dashboard */}
               <li>
                 <Link
-                  to="/twin"
-                  className={`sidebar-item ${location.pathname === '/twin' || location.pathname === '/dashboard' ? 'active' : ''}`}
+                  to="/dashboard"
+                  className={`sidebar-item ${location.pathname === '/dashboard' ? 'active' : ''}`}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '10px 14px',
+                    padding: '9px 12px',
                     borderRadius: '8px',
                     textDecoration: 'none',
-                    background: (location.pathname === '/twin' || location.pathname === '/dashboard') ? '#0a4bb5' : 'transparent',
-                    color: (location.pathname === '/twin' || location.pathname === '/dashboard') ? '#ffffff' : '#475569',
-                    fontWeight: (location.pathname === '/twin' || location.pathname === '/dashboard') ? '700' : '500'
+                    background: location.pathname === '/dashboard' ? '#0a4bb5' : 'transparent',
+                    color: location.pathname === '/dashboard' ? '#ffffff' : '#475569',
+                    fontWeight: location.pathname === '/dashboard' ? '700' : '500'
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <UserSquare2 size={18} />
-                    <span style={{ fontSize: '13px' }}>Overview & Digital Twin</span>
+                    <LayoutDashboard size={17} />
+                    <span style={{ fontSize: '12.5px' }}>Dashboard</span>
                   </div>
-                  <span style={{
-                    background: '#dcfce7',
-                    color: '#166534',
-                    fontSize: '9.5px',
-                    fontWeight: '800',
-                    padding: '1px 6px',
-                    borderRadius: '4px'
-                  }}>
+                </Link>
+              </li>
+
+              {/* 2. Overview & Digital Twin */}
+              <li>
+                <Link
+                  to="/twin"
+                  className={`sidebar-item ${location.pathname === '/twin' ? 'active' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    background: location.pathname === '/twin' ? '#0a4bb5' : 'transparent',
+                    color: location.pathname === '/twin' ? '#ffffff' : '#475569',
+                    fontWeight: location.pathname === '/twin' ? '700' : '500'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <UserSquare2 size={17} />
+                    <span style={{ fontSize: '12.5px' }}>Digital Twin Avatar</span>
+                  </div>
+                  <span style={{ background: '#dcfce7', color: '#166534', fontSize: '9px', fontWeight: '800', padding: '1px 5px', borderRadius: '4px' }}>
                     Live
                   </span>
                 </Link>
               </li>
 
-              {/* 2. AI Disease Predictor (Active) */}
+              {/* 3. AI Disease Predictor */}
               <li>
                 <Link
                   to="/predict"
@@ -668,7 +722,7 @@ function RoleBasedLayout({ children }) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '10px 14px',
+                    padding: '9px 12px',
                     borderRadius: '8px',
                     textDecoration: 'none',
                     background: (location.pathname === '/predict' || location.pathname === '/symptom-checker') ? '#0a4bb5' : 'transparent',
@@ -677,23 +731,23 @@ function RoleBasedLayout({ children }) {
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Activity size={18} />
-                    <span style={{ fontSize: '13px' }}>AI Disease Predictor</span>
+                    <Activity size={17} />
+                    <span style={{ fontSize: '12.5px' }}>AI Symptom Checker</span>
                   </div>
                   <span style={{
                     background: (location.pathname === '/predict' || location.pathname === '/symptom-checker') ? 'rgba(255,255,255,0.2)' : '#dbeafe',
                     color: (location.pathname === '/predict' || location.pathname === '/symptom-checker') ? '#ffffff' : '#1d4ed8',
-                    fontSize: '9.5px',
+                    fontSize: '9px',
                     fontWeight: '800',
-                    padding: '1px 6px',
+                    padding: '1px 5px',
                     borderRadius: '4px'
                   }}>
-                    Dual Engine
+                    Dual AI
                   </span>
                 </Link>
               </li>
 
-              {/* 3. Tele-Consultations */}
+              {/* 4. Tele-Consultations & Doctor Search */}
               <li>
                 <Link
                   to="/teleconsultations"
@@ -702,7 +756,7 @@ function RoleBasedLayout({ children }) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '10px 14px',
+                    padding: '9px 12px',
                     borderRadius: '8px',
                     textDecoration: 'none',
                     background: (location.pathname === '/teleconsultations' || location.pathname === '/doctors') ? '#0a4bb5' : 'transparent',
@@ -711,16 +765,38 @@ function RoleBasedLayout({ children }) {
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Video size={18} />
-                    <span style={{ fontSize: '13px' }}>Tele-Consultations</span>
+                    <Video size={17} />
+                    <span style={{ fontSize: '12.5px' }}>Find Doctors & Video</span>
                   </div>
-                  <span style={{ background: '#fee2e2', color: '#b91c1c', fontSize: '9.5px', fontWeight: '800', padding: '1px 6px', borderRadius: '4px' }}>
-                    Live Video
+                  <span style={{ background: '#fee2e2', color: '#b91c1c', fontSize: '9px', fontWeight: '800', padding: '1px 5px', borderRadius: '4px' }}>
+                    Video
                   </span>
                 </Link>
               </li>
 
-              {/* 4. Prescriptions & Rx */}
+              {/* 5. My Appointments */}
+              <li>
+                <Link
+                  to="/patient/appointments"
+                  className={`sidebar-item ${location.pathname === '/patient/appointments' ? 'active' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    background: location.pathname === '/patient/appointments' ? '#0a4bb5' : 'transparent',
+                    color: location.pathname === '/patient/appointments' ? '#ffffff' : '#475569',
+                    fontWeight: location.pathname === '/patient/appointments' ? '700' : '500'
+                  }}
+                >
+                  <Calendar size={17} />
+                  <span style={{ fontSize: '12.5px' }}>My Appointments</span>
+                </Link>
+              </li>
+
+              {/* 6. Prescriptions & Rx */}
               <li>
                 <Link
                   to="/prescriptions"
@@ -729,7 +805,7 @@ function RoleBasedLayout({ children }) {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '10px',
-                    padding: '10px 14px',
+                    padding: '9px 12px',
                     borderRadius: '8px',
                     textDecoration: 'none',
                     background: location.pathname === '/prescriptions' ? '#0a4bb5' : 'transparent',
@@ -737,12 +813,78 @@ function RoleBasedLayout({ children }) {
                     fontWeight: location.pathname === '/prescriptions' ? '700' : '500'
                   }}
                 >
-                  <FileText size={18} />
-                  <span style={{ fontSize: '13px' }}>Prescriptions & Rx</span>
+                  <FileText size={17} />
+                  <span style={{ fontSize: '12.5px' }}>Prescriptions & Rx</span>
                 </Link>
               </li>
 
-              {/* 5. ABDM Records Vault */}
+              {/* 7. Pharmacy Store */}
+              <li>
+                <Link
+                  to="/pharmacy"
+                  className={`sidebar-item ${location.pathname === '/pharmacy' ? 'active' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    background: location.pathname === '/pharmacy' ? '#0a4bb5' : 'transparent',
+                    color: location.pathname === '/pharmacy' ? '#ffffff' : '#475569',
+                    fontWeight: location.pathname === '/pharmacy' ? '700' : '500'
+                  }}
+                >
+                  <Store size={17} />
+                  <span style={{ fontSize: '12.5px' }}>Order Medicines</span>
+                </Link>
+              </li>
+
+              {/* 8. My Orders */}
+              <li>
+                <Link
+                  to="/patient/orders"
+                  className={`sidebar-item ${(location.pathname === '/patient/orders' || location.pathname === '/orders') ? 'active' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    background: (location.pathname === '/patient/orders' || location.pathname === '/orders') ? '#0a4bb5' : 'transparent',
+                    color: (location.pathname === '/patient/orders' || location.pathname === '/orders') ? '#ffffff' : '#475569',
+                    fontWeight: (location.pathname === '/patient/orders' || location.pathname === '/orders') ? '700' : '500'
+                  }}
+                >
+                  <ShoppingBag size={17} />
+                  <span style={{ fontSize: '12.5px' }}>My Orders</span>
+                </Link>
+              </li>
+
+              {/* 9. Diagnostic Reports */}
+              <li>
+                <Link
+                  to="/reports"
+                  className={`sidebar-item ${location.pathname === '/reports' ? 'active' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    background: location.pathname === '/reports' ? '#0a4bb5' : 'transparent',
+                    color: location.pathname === '/reports' ? '#ffffff' : '#475569',
+                    fontWeight: location.pathname === '/reports' ? '700' : '500'
+                  }}
+                >
+                  <FileText size={17} />
+                  <span style={{ fontSize: '12.5px' }}>Report Analyzer</span>
+                </Link>
+              </li>
+
+              {/* 10. ABDM Records Vault */}
               <li>
                 <Link
                   to="/records"
@@ -751,7 +893,7 @@ function RoleBasedLayout({ children }) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '10px 14px',
+                    padding: '9px 12px',
                     borderRadius: '8px',
                     textDecoration: 'none',
                     background: location.pathname === '/records' ? '#0a4bb5' : 'transparent',
@@ -760,10 +902,76 @@ function RoleBasedLayout({ children }) {
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <FolderOpen size={18} />
-                    <span style={{ fontSize: '13px' }}>ABDM Records Vault</span>
+                    <FolderOpen size={17} />
+                    <span style={{ fontSize: '12.5px' }}>ABDM Health Locker</span>
                   </div>
                   <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#22c55e' }}></span>
+                </Link>
+              </li>
+
+              {/* 11. My Profile */}
+              <li>
+                <Link
+                  to="/patient/profile"
+                  className={`sidebar-item ${location.pathname === '/patient/profile' ? 'active' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    background: location.pathname === '/patient/profile' ? '#0a4bb5' : 'transparent',
+                    color: location.pathname === '/patient/profile' ? '#ffffff' : '#475569',
+                    fontWeight: location.pathname === '/patient/profile' ? '700' : '500'
+                  }}
+                >
+                  <UserSquare2 size={17} />
+                  <span style={{ fontSize: '12.5px' }}>Patient Profile</span>
+                </Link>
+              </li>
+
+              {/* 12. Notifications */}
+              <li>
+                <Link
+                  to="/patient/notifications"
+                  className={`sidebar-item ${(location.pathname === '/patient/notifications' || location.pathname === '/notifications') ? 'active' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    background: (location.pathname === '/patient/notifications' || location.pathname === '/notifications') ? '#0a4bb5' : 'transparent',
+                    color: (location.pathname === '/patient/notifications' || location.pathname === '/notifications') ? '#ffffff' : '#475569',
+                    fontWeight: (location.pathname === '/patient/notifications' || location.pathname === '/notifications') ? '700' : '500'
+                  }}
+                >
+                  <Bell size={17} />
+                  <span style={{ fontSize: '12.5px' }}>Notifications</span>
+                </Link>
+              </li>
+
+              {/* 13. Settings */}
+              <li>
+                <Link
+                  to="/patient/settings"
+                  className={`sidebar-item ${(location.pathname === '/patient/settings' || location.pathname === '/settings') ? 'active' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    background: (location.pathname === '/patient/settings' || location.pathname === '/settings') ? '#0a4bb5' : 'transparent',
+                    color: (location.pathname === '/patient/settings' || location.pathname === '/settings') ? '#ffffff' : '#475569',
+                    fontWeight: (location.pathname === '/patient/settings' || location.pathname === '/settings') ? '700' : '500'
+                  }}
+                >
+                  <Settings size={17} />
+                  <span style={{ fontSize: '12.5px' }}>Settings & Privacy</span>
                 </Link>
               </li>
             </ul>
@@ -932,7 +1140,7 @@ function RoleBasedLayout({ children }) {
               />
             </div>
 
-            <div className="header-actions">
+            <div className="header-actions" style={{ position: 'relative' }}>
               <span style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -947,9 +1155,162 @@ function RoleBasedLayout({ children }) {
                 <CheckCircle2 size={13} /> {badge.label}
               </span>
 
-              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569' }}>
-                <Bell size={20} />
-              </button>
+              <div style={{ position: 'relative' }}>
+                <button 
+                  onClick={() => setShowNotifications(prev => !prev)}
+                  title="Clinical Notifications"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <Bell size={20} />
+                  {unreadNotificationsCount > 0 && (
+                    <span style={{
+                      position: 'absolute',
+                      top: '-4px',
+                      right: '-4px',
+                      background: '#dc2626',
+                      color: '#ffffff',
+                      fontSize: '10px',
+                      fontWeight: '800',
+                      borderRadius: '50%',
+                      minWidth: '16px',
+                      height: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '0 2px'
+                    }}>
+                      {unreadNotificationsCount}
+                    </span>
+                  )}
+                </button>
+
+                {showNotifications && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '36px',
+                    right: 0,
+                    width: '360px',
+                    maxHeight: '440px',
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #e2e8f0',
+                    zIndex: 1000,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      padding: '14px 16px',
+                      borderBottom: '1px solid #f1f5f9',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: '#f8fafc'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Bell size={16} color="#0a4bb5" />
+                        <h4 style={{ margin: 0, fontSize: '13.5px', fontWeight: '800', color: '#0f172a' }}>Clinical Alerts</h4>
+                        {unreadNotificationsCount > 0 && (
+                          <span style={{ background: '#fee2e2', color: '#b91c1c', fontSize: '10.5px', fontWeight: '800', padding: '1px 6px', borderRadius: '4px' }}>
+                            {unreadNotificationsCount} new
+                          </span>
+                        )}
+                      </div>
+                      {unreadNotificationsCount > 0 && (
+                        <button
+                          onClick={() => markAllNotificationsAsRead()}
+                          style={{ border: 'none', background: 'none', color: '#0a4bb5', fontSize: '11.5px', fontWeight: '700', cursor: 'pointer', padding: 0 }}
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ overflowY: 'auto', maxHeight: '340px', padding: '8px 0' }}>
+                      {(!notifications || notifications.length === 0) ? (
+                        <div style={{ padding: '32px 16px', textAlign: 'center', color: '#64748b' }}>
+                          <CheckCircle2 size={28} color="#94a3b8" style={{ margin: '0 auto 8px auto' }} />
+                          <p style={{ margin: 0, fontSize: '12.5px', fontWeight: '600' }}>No notifications</p>
+                          <span style={{ fontSize: '11px', color: '#94a3b8' }}>Real-time sync active</span>
+                        </div>
+                      ) : (
+                        notifications.map(notif => (
+                          <div
+                            key={notif.id}
+                            onClick={() => {
+                              if (!notif.is_read) markNotificationAsRead(notif.id);
+                            }}
+                            style={{
+                              padding: '10px 16px',
+                              borderBottom: '1px solid #f8fafc',
+                              cursor: 'pointer',
+                              background: notif.is_read ? '#ffffff' : '#f0f7ff',
+                              display: 'flex',
+                              gap: '10px',
+                              alignItems: 'flex-start',
+                              transition: 'background 0.15s'
+                            }}
+                          >
+                            <div style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              background: notif.is_read ? 'transparent' : '#0a4bb5',
+                              marginTop: '5px',
+                              flexShrink: 0
+                            }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                <h5 style={{ margin: 0, fontSize: '12.5px', fontWeight: notif.is_read ? '600' : '750', color: '#0f172a' }}>
+                                  {notif.title || 'System Alert'}
+                                </h5>
+                                <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '6px', flexShrink: 0 }}>
+                                  {notif.created_at ? new Date(notif.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                </span>
+                              </div>
+                              <p style={{ margin: '3px 0 0 0', fontSize: '11.5px', color: '#475569', lineHeight: '1.4' }}>
+                                {notif.message || notif.content}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div style={{
+                      padding: '8px 16px',
+                      borderTop: '1px solid #f1f5f9',
+                      background: '#f8fafc',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '11px',
+                      color: '#64748b'
+                    }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#16a34a' }}></span>
+                        Live Sync Active
+                      </span>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <Link
+                          to="/patient/notifications"
+                          onClick={() => setShowNotifications(false)}
+                          style={{ color: '#0a4bb5', fontSize: '11px', fontWeight: '700', textDecoration: 'none' }}
+                        >
+                          View All
+                        </Link>
+                        <button
+                          onClick={() => setShowNotifications(false)}
+                          style={{ border: 'none', background: 'none', color: '#64748b', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </header>
         )}

@@ -79,7 +79,7 @@ export default function PatientProfile() {
           blood_group: pData.blood_group || 'O+',
           emergency_contact: pData.emergency_contact || '',
           address: pData.address || '',
-          abha_id: pData.abha_id || '91-2384-2938-12',
+          abha_id: pData.abha_id || profile?.abha_id || '',
           preferred_language: pData.preferred_language || 'English',
           bp_systolic: pData.bp_systolic || 120,
           bp_diastolic: pData.bp_diastolic || 80,

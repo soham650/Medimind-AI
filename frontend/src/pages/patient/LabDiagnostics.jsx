@@ -24,7 +24,7 @@ import { useAuth } from '../../context/AuthContext';
 import { labService } from '../../services/lab.service';
 
 export default function LabDiagnostics() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [activePkgTab, setActivePkgTab] = useState('all');
   const [testSearch, setTestSearch] = useState('');
   const [symptomPrompt, setSymptomPrompt] = useState('');
@@ -32,6 +32,10 @@ export default function LabDiagnostics() {
   const [packages, setPackages] = useState([]);
   const [standaloneTests, setStandaloneTests] = useState([]);
   const [liveBooking, setLiveBooking] = useState(null);
+
+  const patientName = profile?.full_name || user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'Patient');
+  const patientInitials = patientName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+  const abhaNumber = profile?.abha_id || profile?.abha_number || 'ABHA Registered';
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -57,9 +61,13 @@ export default function LabDiagnostics() {
   }, [activePkgTab, testSearch]);
 
   const handleBookPackage = async (pkg) => {
+    if (!user?.id) {
+      showToast('Authentication required: Please sign in to book lab tests.');
+      return;
+    }
     showToast(`Reserving at-home slot for ${pkg.title}...`);
     try {
-      const res = await labService.bookLabTest(user?.id || '00000000-0000-0000-0000-000000000000', pkg.id, pkg.title, pkg.discounted_price);
+      const res = await labService.bookLabTest(user.id, pkg.id, pkg.title, pkg.discounted_price);
       if (res?.success) {
         showToast(`✓ Booking Confirmed! Ref: ${res.booking_ref} | Sample Collection OTP: ${res.pickup_otp}`);
       }
@@ -143,11 +151,11 @@ export default function LabDiagnostics() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#0a4bb5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '13px' }}>
-              RS
+              {patientInitials}
             </div>
             <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>Rahul Sharma (32Y)</div>
-              <div style={{ fontSize: '11px', color: '#64748b' }}>ABHA: 91-2345-6789-0123</div>
+              <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>{patientName}</div>
+              <div style={{ fontSize: '11px', color: '#64748b' }}>ABHA: {abhaNumber}</div>
             </div>
           </div>
         </div>
@@ -363,7 +371,7 @@ export default function LabDiagnostics() {
             <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                 <div>
-                  <span style={{ fontSize: '10.5px', fontWeight: '800', color: '#64748b' }}>CURATED FOR RAHUL SHARMA (32Y)</span>
+                  <span style={{ fontSize: '10.5px', fontWeight: '800', color: '#64748b' }}>CURATED FOR {patientName.toUpperCase()}</span>
                   <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', margin: '2px 0 0 0' }}>
                     Preventive Health Packages & Full Diagnostics
                   </h3>

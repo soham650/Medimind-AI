@@ -7,26 +7,14 @@ export const abdmService = {
       const { data, error } = await supabase
         .from('patient_dependents')
         .select('*')
+        .eq('patient_id', patientId)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      if (data && data.length > 0) return data;
-
-      // Fallback seed representation matching screenshot
-      return [
-        { id: '1', key: 'rahul', full_name: 'Rahul Sharma', relationship: 'self', age: 32, blood_group: 'O+', records_count: 58, hospitals_connected: 3, access_level: 'current_view', abha_number: '91-2345-6789-0123' },
-        { id: '2', key: 'pooja', full_name: 'Pooja Sharma', relationship: 'spouse', age: 30, blood_group: 'B+', records_count: 24, hospitals_connected: 2, access_level: 'linked', abha_number: '91-2345-6789-0124' },
-        { id: '3', key: 'aarav', full_name: 'Aarav Sharma', relationship: 'child', age: 5, blood_group: 'O+', records_count: 12, hospitals_connected: 1, access_level: 'dependent', abha_number: '91-2345-6789-0125' },
-        { id: '4', key: 'satish', full_name: 'Satish Sharma', relationship: 'father', age: 68, blood_group: 'O+', records_count: 42, hospitals_connected: 3, access_level: 'monitoring', abha_number: '91-2345-6789-0126' }
-      ];
+      return data || [];
     } catch (err) {
-      console.warn('ABDM dependents query fallback:', err.message);
-      return [
-        { id: '1', key: 'rahul', full_name: 'Rahul Sharma', relationship: 'self', age: 32, blood_group: 'O+', records_count: 58, hospitals_connected: 3, access_level: 'current_view', abha_number: '91-2345-6789-0123' },
-        { id: '2', key: 'pooja', full_name: 'Pooja Sharma', relationship: 'spouse', age: 30, blood_group: 'B+', records_count: 24, hospitals_connected: 2, access_level: 'linked', abha_number: '91-2345-6789-0124' },
-        { id: '3', key: 'aarav', full_name: 'Aarav Sharma', relationship: 'child', age: 5, blood_group: 'O+', records_count: 12, hospitals_connected: 1, access_level: 'dependent', abha_number: '91-2345-6789-0125' },
-        { id: '4', key: 'satish', full_name: 'Satish Sharma', relationship: 'father', age: 68, blood_group: 'O+', records_count: 42, hospitals_connected: 3, access_level: 'monitoring', abha_number: '91-2345-6789-0126' }
-      ];
+      console.warn('ABDM dependents query note:', err.message);
+      return [];
     }
   },
 
@@ -39,28 +27,10 @@ export const abdmService = {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      if (data && data.length > 0) return data;
-
-      return [{
-        id: 'c1',
-        consent_artifact_id: 'CONSENT-2024-99128',
-        requester_name: 'Dr. Sarah Chen (City Heart Institute)',
-        requested_records_scope: 'Lipid Profiles & ECG Records',
-        purpose: 'Upcoming scheduled tele-consultation evaluation',
-        status: 'pending',
-        created_at: new Date().toISOString()
-      }];
+      return data || [];
     } catch (err) {
-      console.warn('ABDM consents query fallback:', err.message);
-      return [{
-        id: 'c1',
-        consent_artifact_id: 'CONSENT-2024-99128',
-        requester_name: 'Dr. Sarah Chen (City Heart Institute)',
-        requested_records_scope: 'Lipid Profiles & ECG Records',
-        purpose: 'Upcoming scheduled tele-consultation evaluation',
-        status: 'pending',
-        created_at: new Date().toISOString()
-      }];
+      console.warn('ABDM consents query note:', err.message);
+      return [];
     }
   },
 

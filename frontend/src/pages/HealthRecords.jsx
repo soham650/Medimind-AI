@@ -19,21 +19,36 @@ import {
   RefreshCw,
   QrCode,
   Sparkles,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Pill,
+  Activity,
+  Heart
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { abdmService } from '../services/abdm.service';
+import { medicalRecordsService, reportService, prescriptionService, patientService } from '../services';
 
 export default function HealthRecords() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [activeTab, setActiveTab] = useState('all');
-  const [selectedMember, setSelectedMember] = useState('rahul');
+  const [selectedMember, setSelectedMember] = useState('self');
   const [toastMessage, setToastMessage] = useState(null);
   const [familyMembers, setFamilyMembers] = useState([]);
   const [consents, setConsents] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Real Clinical Records State
+  const [records, setRecords] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [prescriptions, setPrescriptions] = useState([]);
+  const [allergies, setAllergies] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const patientName = profile?.full_name || user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'Patient');
+  const patientInitials = patientName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+  const abhaNumber = profile?.abha_id || profile?.abha_number || 'ABDM Active';
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -41,24 +56,34 @@ export default function HealthRecords() {
   };
 
   useEffect(() => {
-    async function loadAbdmData() {
+    async function loadData() {
       setLoading(true);
       try {
-        const [members, activeConsents, logs] = await Promise.all([
-          abdmService.getFamilyDependents(user?.id),
+        const patientId = user?.id;
+        const [members, activeConsents, logs, medRecs, healthReps, rxs, allergyList] = await Promise.all([
+          patientId ? abdmService.getFamilyDependents(patientId) : [],
           abdmService.getAbdmConsents(),
-          abdmService.getAuditLogs()
+          abdmService.getAuditLogs(),
+          patientId ? medicalRecordsService.getRecords(patientId).catch(() => []) : [],
+          patientId ? reportService.getReports(patientId).catch(() => []) : [],
+          patientId ? prescriptionService.getPatientPrescriptions(patientId).catch(() => []) : [],
+          patientId ? patientService.getAllergies(patientId).catch(() => []) : []
         ]);
+
         if (members && members.length > 0) setFamilyMembers(members);
         if (activeConsents) setConsents(activeConsents);
         if (logs) setAuditLogs(logs);
+        setRecords(medRecs || []);
+        setReports(healthReps || []);
+        setPrescriptions(rxs || []);
+        setAllergies(allergyList || []);
       } catch (err) {
-        console.warn('Failed to load ABDM data:', err);
+        console.warn('Failed to load health records data:', err);
       } finally {
         setLoading(false);
       }
     }
-    loadAbdmData();
+    loadData();
   }, [user]);
 
   const handleConsentAction = async (consentId, action) => {
@@ -149,11 +174,11 @@ export default function HealthRecords() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#0a4bb5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '13px' }}>
-              RS
+              {(profile?.full_name || user?.user_metadata?.full_name || user?.email || 'P').substring(0, 2).toUpperCase()}
             </div>
             <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>Rahul Sharma (32Y)</div>
-              <div style={{ fontSize: '11px', color: '#64748b' }}>ABHA: 91-2345-6789-0123</div>
+              <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>{profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Patient'}</div>
+              <div style={{ fontSize: '11px', color: '#64748b' }}>ABHA: {profile?.abha_id || '91-2345-6789-0123'}</div>
             </div>
           </div>
         </div>
@@ -220,7 +245,7 @@ export default function HealthRecords() {
             </div>
             <div>
               <span style={{ fontSize: '10.5px', fontWeight: '800', color: '#64748b' }}>ABHA NUMBER</span>
-              <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>91-2345-6789-0123 <CheckCircle2 size={14} color="#16a34a" style={{ display: 'inline', verticalAlign: 'middle' }} /></div>
+              <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>{profile?.abha_id || '91-2345-6789-0123'} <CheckCircle2 size={14} color="#16a34a" style={{ display: 'inline', verticalAlign: 'middle' }} /></div>
             </div>
           </div>
 
@@ -230,7 +255,7 @@ export default function HealthRecords() {
             </div>
             <div>
               <span style={{ fontSize: '10.5px', fontWeight: '800', color: '#64748b' }}>ABHA ADDRESS</span>
-              <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>rahul.sharma@abdm</div>
+              <div style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>{profile?.abha_address || `${user?.email?.split('@')[0] || 'patient'}@abdm`}</div>
             </div>
           </div>
 
@@ -271,11 +296,11 @@ export default function HealthRecords() {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
                 <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#0a4bb5', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '12px' }}>
-                  RS
+                  {patientInitials}
                 </div>
                 <div>
-                  <strong style={{ fontSize: '13px', color: '#0f172a', display: 'block' }}>Rahul Sharma</strong>
-                  <span style={{ fontSize: '10.5px', color: '#64748b' }}>Self • 32Y • O+</span>
+                  <strong style={{ fontSize: '13px', color: '#0f172a', display: 'block' }}>{patientName}</strong>
+                  <span style={{ fontSize: '10.5px', color: '#64748b' }}>Primary Account • Self</span>
                 </div>
               </div>
               <div style={{ fontSize: '11px', color: '#475569', marginBottom: '8px' }}>
@@ -413,7 +438,9 @@ export default function HealthRecords() {
                   <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
                   <input 
                     type="text"
-                    placeholder="Filter by Doctor, Diagnostic lab, Hospital, or ICD..."
+                    placeholder="Filter by Doctor, Diagnostic lab, Hospital, or Condition..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                     style={{
                       width: '100%',
                       padding: '7px 10px 7px 32px',
@@ -425,206 +452,189 @@ export default function HealthRecords() {
                     }}
                   />
                 </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <select style={{ border: '1px solid #cbd5e1', borderRadius: '6px', padding: '6px 10px', fontSize: '11.5px', color: '#334155', background: '#f8fafc', outline: 'none' }}>
-                    <option>Past 12 Months</option>
-                    <option>All Time</option>
-                  </select>
-                </div>
               </div>
 
-              {/* Tabs */}
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {[
-                  { id: 'all', label: 'All Documents (58)' },
-                  { id: 'prescriptions', label: 'Prescriptions (18)' },
-                  { id: 'labs', label: 'Lab Reports (22)' },
-                  { id: 'discharge', label: 'Discharge Summaries (8)' }
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    style={{
-                      background: activeTab === tab.id ? '#0a4bb5' : '#ffffff',
-                      color: activeTab === tab.id ? '#ffffff' : '#475569',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '6px',
-                      padding: '6px 12px',
-                      fontSize: '11.5px',
-                      fontWeight: '700',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              {/* Dynamic Tabs */}
+              {(() => {
+                const allTimelineItems = [
+                  ...records.map(r => ({
+                    id: r.id,
+                    category: 'discharge',
+                    typeLabel: r.record_type ? r.record_type.replace('_', ' ').toUpperCase() : 'CLINICAL SUMMARY',
+                    badgeBg: '#fee2e2',
+                    badgeColor: '#b91c1c',
+                    title: r.title || 'Clinical Consultation Record',
+                    doctor: r.doctor?.full_name ? `Dr. ${r.doctor.full_name} (${r.doctor.specialization || 'Attending'})` : 'Medical Center Encounter',
+                    date: r.record_date || r.created_at?.split('T')[0] || 'Recent',
+                    description: r.clinical_summary || 'Clinical notes recorded during hospital or clinic consultation.'
+                  })),
+                  ...reports.map(rep => ({
+                    id: rep.id,
+                    category: 'labs',
+                    typeLabel: 'DIAGNOSTIC LAB REPORT',
+                    badgeBg: '#eff6ff',
+                    badgeColor: '#0a4bb5',
+                    title: rep.report_title || 'Diagnostic Laboratory Report',
+                    doctor: rep.provider || 'MediMind Clinical Labs',
+                    date: rep.created_at?.split('T')[0] || 'Recent',
+                    description: rep.ai_assessment?.summary || rep.ai_analysis?.summary || 'Laboratory diagnostic panel findings verified by Report Intelligence.'
+                  })),
+                  ...prescriptions.map(p => ({
+                    id: p.id,
+                    category: 'prescriptions',
+                    typeLabel: 'DIGITAL PRESCRIPTION',
+                    badgeBg: '#dcfce7',
+                    badgeColor: '#166534',
+                    title: p.diagnosis ? `Prescription: ${p.diagnosis}` : (p.rx_id ? `Prescription #${p.rx_id}` : 'Electronic Prescription'),
+                    doctor: p.doctor?.full_name ? `Dr. ${p.doctor.full_name} (${p.doctor.specialization || 'Physician'})` : 'Licensed Physician',
+                    date: p.created_at?.split('T')[0] || 'Recent',
+                    description: p.general_advice || (p.medicines?.length ? `Medications: ${p.medicines.map(m => m.name || m.medicine_name).join(', ')}` : 'Digital prescription regimen.')
+                  }))
+                ];
+
+                const timelineTabs = [
+                  { id: 'all', label: `All Documents (${allTimelineItems.length})` },
+                  { id: 'prescriptions', label: `Prescriptions (${prescriptions.length})` },
+                  { id: 'labs', label: `Lab Reports (${reports.length})` },
+                  { id: 'discharge', label: `Clinical Records (${records.length})` }
+                ];
+
+                return (
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {timelineTabs.map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{
+                          background: activeTab === tab.id ? '#0a4bb5' : '#ffffff',
+                          color: activeTab === tab.id ? '#ffffff' : '#475569',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '6px',
+                          padding: '6px 12px',
+                          fontSize: '11.5px',
+                          fontWeight: '700',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Longitudinal Records List */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              
-              {/* Record 1: Inpatient Discharge Summary */}
-              <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ background: '#fee2e2', color: '#b91c1c', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>Inpatient Discharge Summary</span>
-                    <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>Digitally Signed FHIR</span>
-                    <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>HIPAA Verified</span>
+              {(() => {
+                const allItems = [
+                  ...records.map(r => ({
+                    id: r.id,
+                    category: 'discharge',
+                    typeLabel: r.record_type ? r.record_type.replace('_', ' ').toUpperCase() : 'CLINICAL SUMMARY',
+                    badgeBg: '#fee2e2',
+                    badgeColor: '#b91c1c',
+                    title: r.title || 'Clinical Consultation Record',
+                    doctor: r.doctor?.full_name ? `Dr. ${r.doctor.full_name} (${r.doctor.specialization || 'Attending'})` : 'Medical Center Encounter',
+                    date: r.record_date || r.created_at?.split('T')[0] || 'Recent',
+                    description: r.clinical_summary || 'Clinical notes recorded during hospital or clinic consultation.'
+                  })),
+                  ...reports.map(rep => ({
+                    id: rep.id,
+                    category: 'labs',
+                    typeLabel: 'DIAGNOSTIC LAB REPORT',
+                    badgeBg: '#eff6ff',
+                    badgeColor: '#0a4bb5',
+                    title: rep.report_title || 'Diagnostic Laboratory Report',
+                    doctor: rep.provider || 'MediMind Clinical Labs',
+                    date: rep.created_at?.split('T')[0] || 'Recent',
+                    description: rep.ai_assessment?.summary || rep.ai_analysis?.summary || 'Laboratory diagnostic panel findings verified by Report Intelligence.'
+                  })),
+                  ...prescriptions.map(p => ({
+                    id: p.id,
+                    category: 'prescriptions',
+                    typeLabel: 'DIGITAL PRESCRIPTION',
+                    badgeBg: '#dcfce7',
+                    badgeColor: '#166534',
+                    title: p.diagnosis ? `Prescription: ${p.diagnosis}` : (p.rx_id ? `Prescription #${p.rx_id}` : 'Electronic Prescription'),
+                    doctor: p.doctor?.full_name ? `Dr. ${p.doctor.full_name} (${p.doctor.specialization || 'Physician'})` : 'Licensed Physician',
+                    date: p.created_at?.split('T')[0] || 'Recent',
+                    description: p.general_advice || (p.medicines?.length ? `Medications: ${p.medicines.map(m => m.name || m.medicine_name).join(', ')}` : 'Digital prescription regimen.')
+                  }))
+                ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                const filtered = allItems.filter(item => {
+                  if (activeTab === 'prescriptions') return item.category === 'prescriptions';
+                  if (activeTab === 'labs') return item.category === 'labs';
+                  if (activeTab === 'discharge') return item.category === 'discharge';
+                  return true;
+                }).filter(item => {
+                  if (!searchQuery.trim()) return true;
+                  const q = searchQuery.toLowerCase();
+                  return item.title.toLowerCase().includes(q) || item.doctor.toLowerCase().includes(q) || item.description.toLowerCase().includes(q);
+                });
+
+                if (loading) {
+                  return (
+                    <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                      <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 8px auto', color: '#0a4bb5' }} />
+                      <p style={{ margin: 0, fontSize: '13px' }}>Synchronizing longitudinal records...</p>
+                    </div>
+                  );
+                }
+
+                if (filtered.length === 0) {
+                  return (
+                    <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '48px 24px', textAlign: 'center', color: '#64748b' }}>
+                      <FileText size={40} color="#94a3b8" style={{ margin: '0 auto 12px auto' }} />
+                      <h4 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: '0 0 4px 0' }}>No Records Found</h4>
+                      <p style={{ fontSize: '13px', margin: 0 }}>
+                        No clinical encounters or documents match the current selection. Reports uploaded or prescriptions issued will appear here automatically.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return filtered.map((item, idx) => (
+                  <div key={item.id || idx} style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <span style={{ background: item.badgeBg, color: item.badgeColor, fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>
+                          {item.typeLabel}
+                        </span>
+                        <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>
+                          ABDM FHIR Verified
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button 
+                          onClick={() => showToast(`Opening document view: ${item.title}`)}
+                          style={{ background: '#0a4bb5', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          View Details
+                        </button>
+                        <button 
+                          onClick={() => showToast(`Share consent token generated for: ${item.title}`)}
+                          style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', color: '#475569', cursor: 'pointer' }}
+                        >
+                          Share
+                        </button>
+                      </div>
+                    </div>
+
+                    <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: '0 0 4px 0' }}>
+                      {item.title}
+                    </h3>
+                    <div style={{ fontSize: '11.5px', color: '#64748b', marginBottom: '8px' }}>
+                      {item.date} • {item.doctor}
+                    </div>
+                    <p style={{ fontSize: '12px', color: '#334155', margin: 0, lineHeight: '1.4' }}>
+                      {item.description}
+                    </p>
                   </div>
-
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <button 
-                      onClick={() => showToast('Displaying Inpatient Discharge PDF')}
-                      style={{ background: '#0a4bb5', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
-                    >
-                      View PDF
-                    </button>
-                    <button 
-                      onClick={() => showToast('Displaying FHIR JSON bundle')}
-                      style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', color: '#475569', cursor: 'pointer' }}
-                    >
-                      &lt;&gt; FHIR JSON
-                    </button>
-                    <button 
-                      onClick={() => showToast('Share token generated')}
-                      style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', color: '#475569', cursor: 'pointer' }}
-                    >
-                      Share
-                    </button>
-                  </div>
-                </div>
-
-                <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: '0 0 4px 0' }}>
-                  Apollo Hospitals - Acute Cardiac Evaluation & Observation
-                </h3>
-                <div style={{ fontSize: '11.5px', color: '#64748b', marginBottom: '8px' }}>
-                  Oct 20, 2024 • Dr. Sarah Chen, MD (Cardiology) • Hospital ID: PAP-99214
-                </div>
-                <p style={{ fontSize: '12px', color: '#334155', margin: 0, lineHeight: '1.4' }}>
-                  <strong>Diagnosis:</strong> Non-ST segment elevation myocardial event ruled out. Transient arrhythmia controlled with Beta-blockers. Follow-up 24h Holter requested.
-                </p>
-              </div>
-
-              {/* Record 2: Diagnostic Lab Report */}
-              <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ background: '#eff6ff', color: '#0a4bb5', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>Diagnostic Lab Report</span>
-                    <span style={{ background: '#fee2e2', color: '#b91c1c', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>High LDL Flagged</span>
-                    <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>Verified by Pathologist</span>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <button 
-                      onClick={() => showToast('Opening Structured Observation metrics')}
-                      style={{ background: '#0a4bb5', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
-                    >
-                      Structured Data
-                    </button>
-                    <button 
-                      onClick={() => showToast('Share token generated')}
-                      style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', color: '#475569', cursor: 'pointer' }}
-                    >
-                      Share
-                    </button>
-                  </div>
-                </div>
-
-                <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: '0 0 4px 0' }}>
-                  Thyrocare Technologies - Comprehensive Lipid & Metabolic Panel
-                </h3>
-                <div style={{ fontSize: '11.5px', color: '#64748b', marginBottom: '10px' }}>
-                  Oct 18, 2024 • Sample Ref: #TC-LIP-44021
-                </div>
-
-                {/* Vitals Summary Pill Grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                  <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: '6px', padding: '6px 10px' }}>
-                    <span style={{ fontSize: '10px', color: '#64748b', display: 'block' }}>Total Cholesterol</span>
-                    <strong style={{ fontSize: '13px', color: '#dc2626' }}>242 mg/dL</strong>
-                    <span style={{ fontSize: '10px', color: '#dc2626', marginLeft: '4px' }}>High</span>
-                  </div>
-                  <div style={{ background: '#fff5f5', border: '1px solid #fecaca', borderRadius: '6px', padding: '6px 10px' }}>
-                    <span style={{ fontSize: '10px', color: '#64748b', display: 'block' }}>LDL (Bad Cholesterol)</span>
-                    <strong style={{ fontSize: '13px', color: '#dc2626' }}>164 mg/dL</strong>
-                    <span style={{ fontSize: '10px', color: '#dc2626', marginLeft: '4px' }}>+24</span>
-                  </div>
-                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '6px 10px' }}>
-                    <span style={{ fontSize: '10px', color: '#64748b', display: 'block' }}>HDL (Good)</span>
-                    <strong style={{ fontSize: '13px', color: '#16a34a' }}>48 mg/dL</strong>
-                    <span style={{ fontSize: '10px', color: '#16a34a', marginLeft: '4px' }}>Normal</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Record 3: OPD e-Prescription */}
-              <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>OPD e-Prescription</span>
-                    <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>Active Course</span>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <button 
-                      onClick={() => showToast('Opening digital Rx view')}
-                      style={{ background: '#0a4bb5', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
-                    >
-                      View Rx
-                    </button>
-                    <button 
-                      onClick={() => showToast('Refill request dispatched to Apollo Pharmacy')}
-                      style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '600', color: '#475569', cursor: 'pointer' }}
-                    >
-                      Refill
-                    </button>
-                  </div>
-                </div>
-
-                <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: '0 0 4px 0' }}>
-                  Max Super Speciality - OPD Consultation & Prescription
-                </h3>
-                <div style={{ fontSize: '11.5px', color: '#64748b', marginBottom: '8px' }}>
-                  Jun 02, 2024 • Dr. Arjun Mehta, MD (Internal Medicine)
-                </div>
-                <div style={{ display: 'flex', gap: '8px', fontSize: '11.5px' }}>
-                  <span style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '2px 8px', borderRadius: '4px' }}>Atorvastatin 10mg (OD, Night)</span>
-                  <span style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '2px 8px', borderRadius: '4px' }}>Metoprolol Succinate 25mg (OD)</span>
-                </div>
-              </div>
-
-              {/* Record 4: Child Immunization Record */}
-              <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ background: '#dcfce7', color: '#166534', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>Child Immunization Record</span>
-                    <span style={{ background: '#f1f5f9', color: '#475569', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>Official Seal PDF</span>
-                    <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' }}>Government Digital Seal</span>
-                  </div>
-
-                  <button 
-                    onClick={() => showToast('Official Government Seal PDF verified: Valid')}
-                    style={{ background: '#0a4bb5', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}
-                  >
-                    Official Seal PDF
-                  </button>
-                </div>
-
-                <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a', margin: '0 0 2px 0' }}>
-                  Universal Child Immunization Card & Digital Certificate
-                </h3>
-                <span style={{ fontSize: '11px', color: '#166534', fontWeight: '700', display: 'block', marginBottom: '6px' }}>
-                  Aarav Sharma (Dependent)
-                </span>
-                <p style={{ fontSize: '12px', color: '#334155', margin: 0, lineHeight: '1.4' }}>
-                  Full pediatric vaccine schedule completed: MMR booster, DTP 2nd booster, Oral Polio (OPV), Hepatitis B series. Verified via CoWIN/U-WIN national registry sync.
-                </p>
-                <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: '700', marginTop: '6px' }}>
-                  ✓ Next scheduled dose: Typhoid Conjugate Vaccine at age 6Y (Nov 2025)
-                </div>
-              </div>
-
+                ));
+              })()}
             </div>
 
             {/* Upload & Digitize Physical Paper Records */}
@@ -691,22 +701,22 @@ export default function HealthRecords() {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
                 <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#ffffff', color: '#0a4bb5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '18px' }}>
-                  RS
+                  {patientInitials}
                 </div>
                 <div>
-                  <h4 style={{ fontSize: '16px', fontWeight: '800', margin: 0 }}>Rahul Sharma</h4>
-                  <div style={{ fontSize: '11px', color: '#dbeafe' }}>DOB: 14/09/1992 (32Y) • Male • Blood: O+</div>
+                  <h4 style={{ fontSize: '16px', fontWeight: '800', margin: 0 }}>{patientName}</h4>
+                  <div style={{ fontSize: '11px', color: '#dbeafe' }}>ABHA Linked Patient • Health Records Vault</div>
                 </div>
               </div>
 
               <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: '8px', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
                 <div>
                   <span style={{ fontSize: '9.5px', color: '#bfdbfe', display: 'block' }}>ABHA NUMBER</span>
-                  <strong>91-2345-6789-0123</strong>
+                  <strong>{abhaNumber}</strong>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: '9.5px', color: '#bfdbfe', display: 'block' }}>ABHA ADDRESS</span>
-                  <strong>rahul.sharma@abdm</strong>
+                  <span style={{ fontSize: '9.5px', color: '#bfdbfe', display: 'block' }}>ABHA STATUS</span>
+                  <strong>Verified Active</strong>
                 </div>
               </div>
 

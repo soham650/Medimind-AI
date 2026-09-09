@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { appointmentService } from '../../services/appointmentService';
+import { doctorService, appointmentService } from '../../services';
 import { 
   Stethoscope, 
   Calendar, 
@@ -18,209 +19,119 @@ import {
   MessageSquare,
   Sparkles,
   Award,
-  ChevronRight
+  ChevronRight,
+  AlertCircle
 } from 'lucide-react';
-
-const FALLBACK_APPROVED_DOCTORS = [
-  {
-    id: '00000000-0000-0000-0000-000000000002',
-    name: 'Dr. Sarah Chen, MD',
-    full_name: 'Dr. Sarah Chen, MD',
-    specialist: 'Cardiologist',
-    clinic_id: 'MediMind Advanced Cardiac Center',
-    experience_years: 12,
-    consultation_fee: 750,
-    rating: '4.9',
-    reviews_count: 142,
-    available_today: true,
-    telemed_enabled: true
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000004',
-    name: 'Dr. Rajesh Verma, MBBS, MD',
-    full_name: 'Dr. Rajesh Verma, MBBS, MD',
-    specialist: 'General Physician',
-    clinic_id: 'Apollo MediMind Clinical Wing',
-    experience_years: 15,
-    consultation_fee: 500,
-    rating: '4.8',
-    reviews_count: 218,
-    available_today: true,
-    telemed_enabled: true
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000005',
-    name: 'Dr. Priya Nair, MD, DNB',
-    full_name: 'Dr. Priya Nair, MD, DNB',
-    specialist: 'Pediatrician',
-    clinic_id: 'Max Child Care & Pediatric Pavilion',
-    experience_years: 9,
-    consultation_fee: 600,
-    rating: '4.9',
-    reviews_count: 98,
-    available_today: true,
-    telemed_enabled: true
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000006',
-    name: 'Dr. Amit Shah, MS',
-    full_name: 'Dr. Amit Shah, MS',
-    specialist: 'Orthopedic',
-    clinic_id: 'Manipal Ortho & Joint Institute',
-    experience_years: 14,
-    consultation_fee: 800,
-    rating: '4.7',
-    reviews_count: 114,
-    available_today: false,
-    telemed_enabled: true
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000007',
-    name: 'Dr. Neha Kulkarni, MD',
-    full_name: 'Dr. Neha Kulkarni, MD',
-    specialist: 'Dermatologist',
-    clinic_id: 'DermaCare Skin & Hair Center',
-    experience_years: 8,
-    consultation_fee: 650,
-    rating: '4.9',
-    reviews_count: 87,
-    available_today: true,
-    telemed_enabled: true
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000008',
-    name: 'Dr. Vikram Malhotra, DM',
-    full_name: 'Dr. Vikram Malhotra, DM',
-    specialist: 'Neurologist',
-    clinic_id: 'NeuroLife Institute of Sciences',
-    experience_years: 18,
-    consultation_fee: 1000,
-    rating: '5.0',
-    reviews_count: 76,
-    available_today: true,
-    telemed_enabled: true
-  }
-];
 
 export default function DoctorSearch() {
   const { user } = useAuth();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState('book'); // 'book' | 'my-teleconsultations'
   const [doctors, setDoctors] = useState([]);
-  const [specialty, setSpecialty] = useState('All');
+  const [specialty, setSpecialty] = useState(location.state?.recommendedSpecialty || 'All');
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [bookingDate, setBookingDate] = useState(new Date().toISOString().split('T')[0]);
   const [timeSlot, setTimeSlot] = useState('10:00 AM');
   const [consultationType, setConsultationType] = useState('video');
-  const [symptomsSummary, setSymptomsSummary] = useState('');
+  const [symptomsSummary, setSymptomsSummary] = useState(location.state?.reportedSymptoms || '');
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [bookingError, setBookingError] = useState(null);
 
   // Active Video Room Modal State for Patient
   const [activeVideoCall, setActiveVideoCall] = useState(null);
   const [micOn, setMicOn] = useState(true);
   const [videoOn, setVideoOn] = useState(true);
   const [chatMessages, setChatMessages] = useState([
-    { sender: 'doctor', text: 'Hello Rahul! I am reviewing your recent symptom report and biomarker logs.' }
+    { sender: 'doctor', text: 'Hello! I am reviewing your recent symptom report and biomarker logs.' }
   ]);
   const [chatInput, setChatInput] = useState('');
 
-  // Patient's booked teleconsultations list
-  const [myConsultations, setMyConsultations] = useState([
-    {
-      id: 'tele-001',
-      doctor_name: 'Dr. Sarah Chen, MD',
-      specialist: 'Cardiologist',
-      clinic: 'MediMind Advanced Cardiac Center',
-      appointment_date: new Date().toISOString().split('T')[0],
-      time_slot: '11:00 AM',
-      consultation_type: 'video',
-      status: 'Ready to Join',
-      fee: '₹750'
-    },
-    {
-      id: 'tele-002',
-      doctor_name: 'Dr. Rajesh Verma, MBBS, MD',
-      specialist: 'General Physician',
-      clinic: 'Apollo MediMind Clinical Wing',
-      appointment_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-      time_slot: '03:30 PM',
-      consultation_type: 'video',
-      status: 'Confirmed',
-      fee: '₹500'
+  // Patient's booked teleconsultations list from real Supabase database
+  const [myConsultations, setMyConsultations] = useState([]);
+
+  useEffect(() => {
+    if (location.state?.recommendedSpecialty) {
+      setSpecialty(location.state.recommendedSpecialty);
     }
-  ]);
+    if (location.state?.reportedSymptoms) {
+      setSymptomsSummary(location.state.reportedSymptoms);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     loadDoctors();
-  }, [specialty]);
+  }, [specialty, searchQuery]);
+
+  useEffect(() => {
+    loadConsultations();
+  }, [user]);
 
   const loadDoctors = async () => {
     setLoading(true);
     try {
-      const data = await appointmentService.getApprovedDoctors(specialty);
-      if (data && data.length > 0) {
-        setDoctors(data);
-      } else {
-        // Filter fallback list by specialty
-        if (specialty === 'All') {
-          setDoctors(FALLBACK_APPROVED_DOCTORS);
-        } else {
-          setDoctors(FALLBACK_APPROVED_DOCTORS.filter(d => d.specialist.toLowerCase().includes(specialty.toLowerCase())));
-        }
-      }
+      const data = await doctorService.searchDoctors({ specialty, search: searchQuery });
+      setDoctors(data || []);
     } catch (err) {
       console.error('Error fetching approved doctors:', err);
-      setDoctors(FALLBACK_APPROVED_DOCTORS);
+      setDoctors([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadConsultations = async () => {
+    if (!user?.id) {
+      setMyConsultations([]);
+      return;
+    }
+    try {
+      const appts = await appointmentService.getPatientAppointments(user.id);
+      const teleconsults = (appts || []).map(a => ({
+        id: a.id,
+        doctor_name: a.doctor?.full_name || 'Dr. Practitioner',
+        specialist: a.doctor?.specialization || 'Specialist',
+        clinic: a.doctor?.clinic_name || 'MediMind Healthcare Partner',
+        appointment_date: a.appointment_date,
+        time_slot: a.time_slot,
+        consultation_type: a.consultation_type || 'video',
+        status: a.status === 'scheduled' ? 'Scheduled (Confirmed)' : a.status === 'in_progress' ? 'Ready to Join' : a.status,
+        fee: `₹${a.doctor?.consultation_fee || 500}`
+      }));
+      setMyConsultations(teleconsults);
+    } catch (err) {
+      console.warn('Error fetching patient teleconsultations:', err);
+      setMyConsultations([]);
     }
   };
 
   const handleBook = async (e) => {
     e.preventDefault();
     if (!selectedDoctor) return;
+    if (!user?.id) {
+      setBookingError('Authentication required: Please sign in with a patient account to book an appointment.');
+      return;
+    }
 
     setSubmitting(true);
+    setBookingError(null);
     try {
-      await appointmentService.bookAppointment({
-        patientId: user?.id || '00000000-0000-0000-0000-000000000001',
+      await appointmentService.createAppointment({
         doctorId: selectedDoctor.id,
         appointmentDate: bookingDate,
         timeSlot,
         consultationType,
         symptomsSummary,
+        patientNotes: symptomsSummary
       });
 
-      // Add to local list
-      const newConsultation = {
-        id: 'tele-' + Date.now(),
-        doctor_name: selectedDoctor.name || selectedDoctor.full_name,
-        specialist: selectedDoctor.specialist,
-        clinic: selectedDoctor.clinic_id || 'MediMind Partner Hospital',
-        appointment_date: bookingDate,
-        time_slot: timeSlot,
-        consultation_type: consultationType,
-        status: consultationType === 'video' ? 'Ready to Join' : 'Scheduled',
-        fee: `₹${selectedDoctor.consultation_fee || 500}`
-      };
-      setMyConsultations(prev => [newConsultation, ...prev]);
       setBookingSuccess(true);
+      await loadConsultations();
     } catch (err) {
-      console.warn('Backend booking fallback, saving locally:', err.message);
-      const newConsultation = {
-        id: 'tele-' + Date.now(),
-        doctor_name: selectedDoctor.name || selectedDoctor.full_name,
-        specialist: selectedDoctor.specialist,
-        clinic: selectedDoctor.clinic_id || 'MediMind Partner Hospital',
-        appointment_date: bookingDate,
-        time_slot: timeSlot,
-        consultation_type: consultationType,
-        status: consultationType === 'video' ? 'Ready to Join' : 'Scheduled',
-        fee: `₹${selectedDoctor.consultation_fee || 500}`
-      };
-      setMyConsultations(prev => [newConsultation, ...prev]);
-      setBookingSuccess(true);
+      console.error('Appointment booking failed:', err);
+      setBookingError(err.message || 'Time slot already booked or doctor is unavailable. Please choose another slot.');
     } finally {
       setSubmitting(false);
     }
@@ -711,12 +622,19 @@ export default function DoctorSearch() {
                   </div>
                   <button 
                     type="button" 
-                    onClick={() => setSelectedDoctor(null)} 
+                    onClick={() => { setSelectedDoctor(null); setBookingError(null); }} 
                     style={{ border: 'none', background: '#f1f5f9', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', color: '#64748b', fontWeight: 'bold' }}
                   >
                     ✕
                   </button>
                 </div>
+
+                {bookingError && (
+                  <div style={{ padding: '12px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', color: '#b91c1c', fontSize: '13px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <AlertCircle size={16} color="#b91c1c" style={{ flexShrink: 0 }} />
+                    <span>{bookingError}</span>
+                  </div>
+                )}
 
                 {/* Consultation Type Selector */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '18px' }}>
