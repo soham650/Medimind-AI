@@ -98,7 +98,32 @@ export default function ReportAnalyzer() {
         const base64Data = e.target.result;
         try {
           const result = await mlApi.analyzeReport(file.name, file.type, base64Data);
-          setReportData(result);
+
+          // Non-Medical Document Guard
+          if (result && result.is_medical_report === false) {
+            showToast('⚠️ This is not a medical report. Please upload a valid laboratory report or medical document.');
+            setReportData(null);
+            setFileName('');
+            setAnalyzing(false);
+            return;
+          }
+
+          const rawFindings = result?.findings || result?.parameters || [];
+          const normalized = {
+            ...result,
+            patientName: result?.patientName || result?.patient_name || user?.user_metadata?.full_name || 'Verified Patient',
+            reportDate: result?.report_date || result?.reportDate || new Date().toISOString().split('T')[0],
+            parameters: rawFindings.map(f => ({
+              name: f.name || 'Biomarker',
+              value: f.value ?? 'Observed',
+              unit: f.unit || '',
+              range: f.reference_range || f.range || 'Reference Interval',
+              status: f.status ? (f.status.charAt(0).toUpperCase() + f.status.slice(1)) : 'Normal'
+            })),
+            recommendations: result?.recommendations || [],
+            summary: result?.summary || (result?.observations && result.observations.length > 0 ? result.observations.map(o => o.text).join(' ') : null) || result?.disclaimer || 'Structured findings parsed from medical report.'
+          };
+          setReportData(normalized);
 
           // Upload to private Supabase Storage bucket 'medical-documents'
           if (user?.id) {
@@ -111,7 +136,7 @@ export default function ReportAnalyzer() {
             }
           }
         } catch (err) {
-          alert(`Analysis failed: ${err.message}`);
+          showToast(`Analysis failed: ${err.message}`);
         } finally {
           setAnalyzing(false);
         }
@@ -413,9 +438,39 @@ export default function ReportAnalyzer() {
                 {reportData?.summary || 'Upload or select a medical report to view automated findings extraction, abnormal flags, and physiological correlations.'}
               </div>
 
-              <div style={{ marginTop: '16px', fontSize: '12px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
-                <strong>Triage Recommendation:</strong> Share these findings with your attending doctor during your next scheduled teleconsultation.
-              </div>
+              {reportData?.recommendations && reportData.recommendations.length > 0 ? (
+                <div style={{ marginTop: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#0a4bb5', letterSpacing: '0.04em' }}>
+                    PERSONALIZED CLINICAL RECOMMENDATIONS
+                  </span>
+                  {reportData.recommendations.map((rec, i) => (
+                    <div key={i} style={{
+                      display: 'flex',
+                      alignItems: 'start',
+                      gap: '8px',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      background: rec.category === 'emergency' ? '#fef2f2' : '#f8fafc',
+                      border: rec.category === 'emergency' ? '1px solid #fca5a5' : '1px solid #e2e8f0',
+                      fontSize: '12px'
+                    }}>
+                      <span style={{ fontSize: '16px' }}>{rec.category === 'emergency' ? '🚨' : rec.category === 'doctor_consultation' ? '🩺' : '💧'}</span>
+                      <div>
+                        <strong style={{ color: rec.category === 'emergency' ? '#b91c1c' : '#1e293b' }}>{rec.title}: </strong>
+                        <span style={{ color: '#475569' }}>{rec.description}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : reportData?.doctor_recommendation ? (
+                <div style={{ marginTop: '16px', fontSize: '12px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                  <strong>Doctor Referral:</strong> Consult a {reportData.doctor_recommendation.recommended_specialist} ({reportData.doctor_recommendation.urgency_level} priority). {reportData.doctor_recommendation.rationale}
+                </div>
+              ) : (
+                <div style={{ marginTop: '16px', fontSize: '12px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                  <strong>Triage Recommendation:</strong> Share these findings with your attending doctor during your next scheduled teleconsultation.
+                </div>
+              )}
             </div>
 
             {/* Longitudinal Trend Chart */}

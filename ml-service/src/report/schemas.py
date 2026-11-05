@@ -32,7 +32,9 @@ class UncertainFinding(BaseModel):
 
 class MedicalReportAnalysis(BaseModel):
     analysis_version: str = Field(default="report-analysis-v1", description="Prompt and extraction pipeline version")
-    report_type: str = Field(default="General Medical Report", description="Identified report category")
+    is_medical_report: bool = Field(default=True, description="Whether the uploaded document is a valid medical/laboratory report")
+    rejection_reason: Optional[str] = Field(default=None, description="Reason if the document is not a medical report")
+    report_type: Optional[str] = Field(default="General Medical Report", description="Identified report category")
     report_date: Optional[str] = Field(default=None, description="Report date if documented")
     findings: List[ReportFinding] = Field(default_factory=list, description="Structured quantitative lab findings")
     symptoms: List[ExtractedSymptom] = Field(default_factory=list, description="Documented clinical symptoms")
@@ -58,6 +60,8 @@ class DoctorRecommendationInfo(BaseModel):
 
 class ReportAssessmentResponse(BaseModel):
     status: str = "success"
+    is_medical_report: bool = Field(default=True, description="Whether the uploaded document is a valid medical report")
+    rejection_reason: Optional[str] = Field(default=None, description="Rejection reason if non-medical document")
     assessment_type: str = "AI-assisted preliminary assessment"
     analysis_version: str = "report-analysis-v1"
     model_version: str = "symptom-rf-v1"
@@ -65,9 +69,10 @@ class ReportAssessmentResponse(BaseModel):
     mapped_symptoms: List[str] = Field(default_factory=list, description="Findings mapped to 132 MediMind symptoms")
     symptom_mapping_status: str = Field(
         ...,
-        description="'sufficient_mapping' if mapped symptoms exist, 'insufficient_symptom_mapping' if non-symptomatic panel"
+        description="'sufficient_mapping' if mapped symptoms exist, 'insufficient_symptom_mapping' if non-symptomatic panel, 'rejected_non_medical' if not a medical report"
     )
     possible_conditions: List[Dict[str, Any]] = Field(default_factory=list, description="Top potential conditions from Phase 1 model")
     risk_assessment: Dict[str, Any] = Field(..., description="Independent clinical risk assessment")
     doctor_recommendation: DoctorRecommendationInfo = Field(..., description="Doctor referral recommendation")
+    recommendations: List[Dict[str, Any]] = Field(default_factory=list, description="Patient-friendly, context-aware clinical recommendations based on report findings")
     disclaimer: str = Field(..., description="Mandatory medical legal disclaimer")

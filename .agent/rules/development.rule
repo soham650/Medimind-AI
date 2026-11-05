@@ -1,0 +1,50 @@
+# ==============================================================================
+# MEDIMIND AI — MANDATORY AI CODING AGENT DEVELOPMENT RULES
+# Rule File: .agent/rules/development.rule
+# Target: All AI Coding Assistants, Pair Programmers, Subagents, and Engineers
+# ==============================================================================
+
+1. READ FIRST: Always read docs/README.md before undertaking any development work.
+2. PROJECT MEMORY: Always read and respect docs/MEMORY.md before planning or writing code.
+3. INSPECT BEFORE CODING: Always inspect existing implementations in frontend/, ml-service/, and supabase/ before creating any new code.
+4. REUSE EXISTING SERVICES: Always reuse existing frontend services (frontend/src/services/) instead of re-implementing client fetch calls.
+5. REUSE EXISTING COMPONENTS: Always reuse established UI components and design system tokens in frontend/src/components/.
+6. REUSE EXISTING RPCS: Always utilize existing transactional database RPCs in supabase/migrations/ instead of writing ad-hoc client-side mutations.
+7. NEVER DUPLICATE FUNCTIONALITY: Check for existing helpers, utilities, and components before writing duplicates.
+8. NEVER RESET DATABASE: Never drop, truncate, or wipe database tables or run destructive reset scripts against production or shared databases.
+9. DO NOT CREATE MIGRATION 0010: Migration baseline 0001 through 0009 is strictly FROZEN. Do not generate a new migration file unless explicitly commanded by the user.
+10. DATABASE BASELINE FREEZE: Database migrations 0001–0009 remain the frozen baseline. All database interactions must conform to this schema.
+11. NEVER INTRODUCE SUPER_ADMIN: The system enforces strictly four canonical active roles: 'patient', 'doctor', 'pharmacist', 'admin'. Never re-introduce 'super_admin'.
+12. ACTIVE CANONICAL ROLES ONLY: Only four roles exist in the access control layer:
+    - 'patient'
+    - 'doctor'
+    - 'pharmacist'
+    - 'admin'
+13. NEVER EXPOSE SERVICE-ROLE KEYS: Never embed, commit, bundle, or expose SUPABASE_SERVICE_ROLE_KEY in frontend client code or browser-accessible assets.
+14. NEVER EXPOSE GEMINI SECRETS: Never expose GEMINI_API_KEY or GOOGLE_API_KEY in frontend code. Gemini calls must route through ml-service or protected server proxies.
+15. NO SECRETS IN FRONTEND: The frontend .env file must only contain publishable variables prefixed with VITE_ (e.g., VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY).
+16. NEVER LOG RAW PHI: Never log unmasked Protected Health Information (patient full names, raw medical reports, blood sugar/bp metrics, symptom lists) in server stdout or console logs.
+17. MINIMUM NECESSARY PATIENT CONTEXT: Always apply the HIPAA Minimum Necessary rule when passing clinical context to AI models or notifications.
+18. AI IS ASSISTIVE ONLY: All AI/ML outputs are supportive and preliminary. The system never provides autonomous diagnostic certainty or binding medical determinations.
+19. DETERMINISTIC RISK SUPREMACY: Gemini and generative models cannot override the deterministic RiskEngine. Emergency red flags always take precedence.
+20. ML CONFIDENCE IS NOT CLINICAL CERTAINTY: Random Forest test accuracy (97.62% on symptom-rf-v1) is a dataset metric and must never be presented as clinical diagnostic certainty.
+21. DOCTOR REMAINS FINAL CLINICAL AUTHORITY: Only licensed human medical practitioners can issue prescriptions, confirm diagnoses, and finalize treatment plans.
+22. VERIFIED DOCTOR SCHEDULING: Only doctors with verification_status = 'approved' can receive patient appointment bookings or appear in public clinical discovery.
+23. DATABASE AUTHORIZATION IS FINAL SECURITY BOUNDARY: Row-Level Security (RLS) policies and RPC security definer checks are the authoritative security boundary.
+24. FRONTEND ROLE CHECKS ARE NOT SECURITY: UI conditional rendering and route guards are for user experience only, never for security enforcement.
+25. TEST RLS AND AUTHORIZATION: Every database-backed feature must be verified against RLS to ensure zero cross-tenant or cross-persona data leakage.
+26. TEST ALL AFFECTED WORKFLOWS: When updating an auth, role, or clinical feature, test the impact across all connected personas (Patient, Doctor, Pharmacy, Admin).
+27. REGRESSION TESTING: Run regression suites after any meaningful architectural or database-interacting modification.
+28. NO UNVERIFIED TEST CLAIMS: Never claim a test has passed or a suite is green without actually executing it and inspecting the return code and stdout.
+29. NO FABRICATED IMPLEMENTATIONS: Never claim a feature is implemented or operational if it is only planned, mocked, or partially wired up.
+30. UPDATE DOCUMENTATION: Keep docs/ aligned with the actual executable code and database schema whenever changes are made.
+31. ASK BEFORE DESTRUCTIVE CHANGES: Stop and explicitly request user confirmation before performing file deletions, overwrites of unknown files, or irreversible data operations.
+32. ASK BEFORE SCHEMA CHANGES: Stop and explicitly ask the user before proposing genuine database schema additions or alterations.
+33. IRREVERSIBLE OPERATION CAUTION: Never execute irreversible commands without user visibility and explicit approval.
+34. PRESERVE SECURITY POLICIES: Do not silently weaken, bypass, or delete PostgreSQL RLS policies or authentication barriers.
+35. PRESERVE PRODUCTION PERMISSIONS: Do not grant public or anon write permissions to tables restricted to authenticated or administrative roles.
+36. PRESERVE AI MODEL ARCHITECTURE: Do not silently swap models, remove prompt sanitization, or bypass safety guardrails in ml-service.
+37. PRESERVE DATABASE ARCHITECTURE: Maintain the dual-table synchronization bridges (orders <-> medicine_orders) and index constraints established in migration 0008.
+38. DO NOT ADVANCE TO NEXT PHASE AUTOMATICALLY: Remain focused strictly on the current task; do not unilaterally begin Phase 10 or unauthorized future phases.
+39. ONE PHASE AT A TIME: Execute development in methodical, verified increments rather than speculative multi-phase rewrites.
+40. PRESERVE EXISTING FUNCTIONALITY: Maintain backward compatibility with all working features across patient, doctor, pharmacy, and admin modules.

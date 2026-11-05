@@ -115,12 +115,12 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # Start the FastAPI Backend Server on Port 8000
-uvicorn app.main:app --reload --port 8000
+uvicorn main:app --reload --port 8000
 ```
 
 > **Direct Windows Shortcut (without manual activation):**
 > ```powershell
-> .\venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+> .\venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 > ```
 
 * **Backend Health Check:** [http://localhost:8000/health](http://localhost:8000/health)

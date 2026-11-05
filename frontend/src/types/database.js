@@ -6,10 +6,22 @@ export const UserRoles = {
   PATIENT: 'patient',
   DOCTOR: 'doctor',
   PHARMACIST: 'pharmacist',
-  PHARMACY: 'pharmacy',
-  ADMIN: 'admin',
-  SUPER_ADMIN: 'super_admin'
+  ADMIN: 'admin'
 };
+
+/**
+ * Normalizes any database/legacy role string to one of the 4 canonical application roles:
+ * 'patient', 'doctor', 'pharmacist', 'admin'.
+ */
+export const normalizeRole = (rawRole) => {
+  if (!rawRole) return UserRoles.PATIENT;
+  const lower = String(rawRole).toLowerCase().trim();
+  if (lower === 'admin' || lower === 'super_admin') return UserRoles.ADMIN;
+  if (lower === 'pharmacist' || lower === 'pharmacy') return UserRoles.PHARMACIST;
+  if (lower === 'doctor') return UserRoles.DOCTOR;
+  return UserRoles.PATIENT;
+};
+
 
 export const AppointmentStatuses = {
   REQUESTED: 'requested',

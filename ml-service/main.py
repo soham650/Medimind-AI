@@ -44,7 +44,7 @@ risk_engine = IndependentRiskEngine()
 # Request & Response Schemas
 # -----------------------------------------------------------------------------
 class SymptomPredictionRequest(BaseModel):
-    symptoms: List[str] = Field(..., description="List of symptoms reported by the patient", example=["itching", "skin_rash"])
+    symptoms: List[str] = Field(..., description="List of symptoms reported by the patient", json_schema_extra={"example": ["itching", "skin_rash"]})
     vitals: Optional[Dict[str, Any]] = Field(default=None, description="Optional patient physiological vitals")
 
 class PossibleCondition(BaseModel):
@@ -115,7 +115,7 @@ def root():
 
 @app.get("/health", tags=["System Monitoring"])
 def health_check():
-    return {
+    return { 
         "status": "healthy",
         "service": "MediMind AI/ML Service",
         "model_version": MODEL_VERSION,
@@ -362,7 +362,116 @@ async def analyze_report_and_assess_endpoint(
         logger.error(f"{req_id} | Stage=INTERNAL_ERROR | err_class={type(e).__name__}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Report assessment failed: {str(e)}")
 
+# -----------------------------------------------------------------------------
+# Phase 8: Advanced AI Clinical Intelligence & RAG Endpoints
+# -----------------------------------------------------------------------------
+from src.orchestrator import (
+    ClinicalAssessmentRequest,
+    StructuredClinicalAssessment,
+    DoctorAssistRequest,
+    DoctorAssistResponse,
+    ChatAssistRequest,
+    ChatAssistResponse,
+    MediMindAIOrchestrator
+)
+from src.rag import ClinicalKnowledgeBase, ClinicalRAGRetriever
+
+rag_kb = ClinicalKnowledgeBase()
+rag_retriever = ClinicalRAGRetriever(knowledge_base=rag_kb)
+orchestrator = MediMindAIOrchestrator(
+    predictor=predictor,
+    risk_engine=risk_engine,
+    rag_retriever=rag_retriever
+)
+
+@app.get("/rag_knowledge", tags=["Clinical RAG Knowledge (Phase 8)"])
+def get_rag_knowledge():
+    """
+    Returns curated, authoritative clinical guidelines with citation metadata.
+    """
+    return {
+        "status": "success",
+        "total_guidelines": len(rag_kb.corpus),
+        "guidelines": rag_kb.list_all_guidelines()
+    }
+
+@app.post(
+    "/orchestrate_clinical_assessment",
+    response_model=StructuredClinicalAssessment,
+    tags=["Clinical Intelligence (Phase 8)"]
+)
+@app.post(
+    "/orchestrate_assessment",
+    response_model=StructuredClinicalAssessment,
+    tags=["Clinical Intelligence (Phase 8)"]
+)
+def orchestrate_clinical_assessment_endpoint(payload: ClinicalAssessmentRequest):
+    """
+    Phase 8 Master Clinical Orchestration Pipeline:
+    Patient Symptoms + Vitals + Context + Phase 1 RF + Risk Engine + RAG Guidelines ->
+    Structured Clinical Assessment with zero-fabrication citations and uncertainty guardrails.
+    """
+    if not payload.symptoms:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No symptoms provided. Please report at least one symptom for assessment."
+        )
+    try:
+        assessment = orchestrator.assess_clinical_presentation(payload)
+        return assessment
+    except Exception as e:
+        logger.error(f"Orchestration failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Clinical assessment orchestration failed: {str(e)}"
+        )
+
+@app.post(
+    "/orchestrate_doctor_assist",
+    response_model=DoctorAssistResponse,
+    tags=["Clinical Intelligence (Phase 8)"]
+)
+def orchestrate_doctor_assist_endpoint(payload: DoctorAssistRequest):
+    """
+    Physician Decision Support Pipeline:
+    Synthesizes presentation, abnormal biomarker alerts, ML differentials, and clinical guidelines
+    into an objective consultation aid for attending doctors.
+    """
+    try:
+        return orchestrator.orchestrate_doctor_assist(payload)
+    except Exception as e:
+        logger.error(f"Doctor assist orchestration failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Doctor decision support failed: {str(e)}"
+        )
+
+@app.post(
+    "/orchestrate_chat",
+    response_model=ChatAssistResponse,
+    tags=["Clinical Intelligence (Phase 8)"]
+)
+@app.post(
+    "/message",
+    response_model=ChatAssistResponse,
+    tags=["Clinical Intelligence (Phase 8)"]
+)
+def orchestrate_chat_endpoint(payload: ChatAssistRequest):
+    """
+    Conversational Healthcare Assistant with prompt-injection defense,
+    emergency red-flag prioritization, and clinical guardrails.
+    """
+    try:
+        return orchestrator.orchestrate_chat(payload)
+    except Exception as e:
+        logger.error(f"Chat orchestration failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Chat assistant failed: {str(e)}"
+        )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+
 

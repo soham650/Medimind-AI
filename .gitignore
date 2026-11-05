@@ -47,3 +47,6 @@ __pycache__/
 # Temporary CLI artifacts
 .temp/
 **/.temp/
+
+# Scratch files
+scratch/

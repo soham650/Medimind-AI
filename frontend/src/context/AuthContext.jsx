@@ -1,10 +1,43 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { authService } from '../services/auth.service';
 import { notificationService } from '../services/notification.service';
-import { UserRoles } from '../types/database';
+import { UserRoles, normalizeRole } from '../types/database';
 
 const AuthContext = createContext(null);
+const AUTH_CACHE_KEY = 'medimind_auth_cache_v2';
+
+const readAuthCache = () => {
+  try {
+    const raw = localStorage.getItem(AUTH_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.user?.id && parsed?.role) {
+      return parsed;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+};
+
+const writeAuthCache = (data) => {
+  try {
+    if (data?.user?.id) {
+      localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({
+        user: data.user,
+        session: data.session,
+        profile: data.profile,
+        role: data.role,
+        cachedAt: Date.now()
+      }));
+    } else {
+      localStorage.removeItem(AUTH_CACHE_KEY);
+    }
+  } catch (e) {
+    // ignore
+  }
+};
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -15,60 +48,113 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [session, setSession] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [role, setRole] = useState(UserRoles.PATIENT);
+  const initialCache = readAuthCache();
+  const [user, setUser] = useState(initialCache?.user || null);
+  const [session, setSession] = useState(initialCache?.session || null);
+  const [profile, setProfile] = useState(initialCache?.profile || null);
+  const [role, setRole] = useState(initialCache?.role || null);
   const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  
+  // Instant load: If user is cached from previous session, skip the loading spinner entirely!
+  const [loading, setLoading] = useState(initialCache?.user ? false : true);
 
-  // Fetch role and profile from live Supabase tables for authenticated user
-  const fetchUserData = useCallback(async (userId) => {
+  const hydratingRef = useRef(false);
+
+  // Fetch canonical role and profile from live Supabase tables for authenticated user
+  const fetchUserData = useCallback(async (userId, passedUser = null, currentSession = null) => {
+    if (hydratingRef.current) return;
+    hydratingRef.current = true;
+
     try {
-      const userRole = await authService.getUserRole(userId);
-      const userProfile = await authService.getUserProfile(userId, userRole);
-      const userNotes = await notificationService.getNotifications(userId);
+      const activeUser = passedUser || user;
+      const userRole = await authService.getUserRole(userId, activeUser);
+      const canonicalRole = normalizeRole(userRole);
+      const userProfile = await authService.getUserProfile(userId, canonicalRole);
 
-      setRole(userRole || UserRoles.PATIENT);
+      setRole(canonicalRole);
       setProfile(userProfile);
-      setNotifications(userNotes || []);
+
+      // Cache updated credentials immediately
+      writeAuthCache({
+        user: activeUser,
+        session: currentSession || session,
+        profile: userProfile,
+        role: canonicalRole
+      });
+
+      // Load notifications in background without blocking UI
+      notificationService.getNotifications(userId)
+        .then(notes => { if (notes) setNotifications(notes); })
+        .catch(err => console.warn('Background notification sync note:', err.message));
+
+      return { role: canonicalRole, profile: userProfile };
     } catch (err) {
       console.error('Error hydrating user context from Supabase:', err);
+      if (!role) setRole(UserRoles.PATIENT);
+      return { role: role || UserRoles.PATIENT, profile: null };
     } finally {
+      hydratingRef.current = false;
       setLoading(false);
     }
-  }, []);
+  }, [user, session, role]);
 
   // Listen to live Supabase Auth session and state changes
   useEffect(() => {
     let mounted = true;
 
-    // 1. Initial session check
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Safety timeout: Never leave user stuck on session loading screen longer than 800ms
+    const safetyTimer = setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 800);
+
+    // 1. Initial session check on mount
+    supabase.auth.getSession().then(({ data: { session: initialSession }, error }) => {
       if (!mounted) return;
-      setSession(session);
-      if (session?.user) {
-        setUser(session.user);
-        fetchUserData(session.user.id);
+      if (error) {
+        console.warn('Initial session check note:', error.message);
+        if (!initialCache?.user) {
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setRole(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (initialSession?.user) {
+        setSession(initialSession);
+        setUser(initialSession.user);
+        fetchUserData(initialSession.user.id, initialSession.user, initialSession);
       } else {
+        writeAuthCache(null);
         setUser(null);
+        setSession(null);
         setProfile(null);
-        setRole(UserRoles.PATIENT);
+        setRole(null);
         setLoading(false);
       }
+    }).catch(() => {
+      if (mounted) setLoading(false);
     });
 
-    // 2. Auth changes listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // 2. Auth state change listener (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       if (!mounted) return;
-      setSession(session);
-      if (session?.user) {
-        setUser(session.user);
-        fetchUserData(session.user.id);
-      } else {
+
+      if (currentSession?.user) {
+        setSession(currentSession);
+        setUser(currentSession.user);
+        // Only run fetchUserData if not already hydrated with this user
+        if (!hydratingRef.current) {
+          fetchUserData(currentSession.user.id, currentSession.user, currentSession);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        writeAuthCache(null);
         setUser(null);
+        setSession(null);
         setProfile(null);
-        setRole(UserRoles.PATIENT);
+        setRole(null);
         setNotifications([]);
         setLoading(false);
       }
@@ -76,9 +162,10 @@ export const AuthProvider = ({ children }) => {
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
+      clearTimeout(safetyTimer);
+      subscription?.unsubscribe();
     };
-  }, [fetchUserData]);
+  }, []);
 
   // Real-time notification listener for authenticated user
   useEffect(() => {
@@ -86,7 +173,9 @@ export const AuthProvider = ({ children }) => {
     const unsubscribe = notificationService.subscribe(user.id, (newNotification) => {
       setNotifications(prev => [newNotification, ...prev]);
     });
-    return () => unsubscribe();
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, [user?.id]);
 
   // Real Supabase Auth login
@@ -98,6 +187,23 @@ export const AuthProvider = ({ children }) => {
       setSession(result.session);
       setRole(result.role);
       setProfile(result.profile);
+      writeAuthCache(result);
+      return result;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 1-Click Role Evaluation Demo Sign-in
+  const loginDemo = async (roleName = 'patient') => {
+    setLoading(true);
+    try {
+      const result = await authService.loginDemo(roleName);
+      setUser(result.user);
+      setSession(result.session);
+      setRole(result.role);
+      setProfile(result.profile);
+      writeAuthCache(result);
       return result;
     } finally {
       setLoading(false);
@@ -108,11 +214,37 @@ export const AuthProvider = ({ children }) => {
   const register = async (email, password, metadata) => {
     setLoading(true);
     try {
-      const data = await authService.signup(email, password, {
-        fullName: metadata.full_name || metadata.name,
-        phone: metadata.phone || metadata.mobile,
-        abhaId: metadata.abha_id
-      });
+      const requestedRole = normalizeRole(metadata.role || 'patient');
+      let data;
+
+      if (requestedRole === UserRoles.DOCTOR || requestedRole === UserRoles.PHARMACIST) {
+        data = await authService.registerPractitioner({
+          email,
+          password,
+          role: requestedRole,
+          fullName: metadata.full_name || metadata.name,
+          phone: metadata.phone || metadata.mobile,
+          licenseNumber: metadata.license_number || metadata.licenseNumber,
+          clinicName: metadata.clinic_name || metadata.clinicName,
+          specialization: metadata.specialization || metadata.specialist,
+          pharmacyName: metadata.pharmacy_name || metadata.pharmacyName,
+          pharmacyAddress: metadata.pharmacy_address || metadata.pharmacyAddress,
+          gstNumber: metadata.gst_number || metadata.gstNumber
+        });
+      } else {
+        // Patient registration
+        data = await authService.signup(email, password, {
+          fullName: metadata.full_name || metadata.name,
+          phone: metadata.phone || metadata.mobile,
+          abhaId: metadata.abha_id || metadata.abhaId,
+          age: metadata.age,
+          gender: metadata.gender
+        });
+      }
+
+      if (data?.user && data?.session) {
+        writeAuthCache(data);
+      }
       return data;
     } finally {
       setLoading(false);
@@ -123,77 +255,28 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     setLoading(true);
     try {
+      writeAuthCache(null);
       await authService.logout();
+    } catch (e) {
+      console.warn('Signout warning:', e);
+    } finally {
       setUser(null);
       setSession(null);
       setProfile(null);
-      setRole(UserRoles.PATIENT);
+      setRole(null);
       setNotifications([]);
-    } finally {
       setLoading(false);
     }
   };
 
-  // 1-Click Evaluation / Demo Login using real Supabase Auth
-  // Signs in to a verified test account or creates it on the fly via Supabase Auth
-  const loginDemo = async (targetRole = 'patient') => {
-    setLoading(true);
-    const demoEmail = import.meta.env.VITE_DEMO_PATIENT_EMAIL || `patient.eval.${targetRole}@medimind.ai`;
-    const demoPassword = import.meta.env.VITE_DEMO_PATIENT_PASSWORD || 'MediMindDemo2026!';
-
-    try {
-      // 1. Attempt standard sign-in
-      const res = await supabase.auth.signInWithPassword({
-        email: demoEmail,
-        password: demoPassword
-      });
-
-      if (!res.error && res.data?.user) {
-        setUser(res.data.user);
-        setSession(res.data.session);
-        await fetchUserData(res.data.user.id);
-        return res.data;
-      }
-
-      // 2. If user does not exist yet on this instance, register via standard Supabase Auth
-      const signupRes = await supabase.auth.signUp({
-        email: demoEmail,
-        password: demoPassword,
-        options: {
-          data: {
-            full_name: targetRole === 'patient' ? 'Patient Demo' : (targetRole === 'doctor' ? 'Dr. Sarah Chen' : 'Apex Pharmacy'),
-            name: targetRole === 'patient' ? 'Patient Demo' : (targetRole === 'doctor' ? 'Dr. Sarah Chen' : 'Apex Pharmacy'),
-            phone: '+91 98765 43210',
-            abha_id: '91-ABHA-DEMO-01',
-            role: targetRole
-          }
-        }
-      });
-
-      if (signupRes.error) throw signupRes.error;
-
-      // 3. Complete sign-in
-      const signInAfterSignup = await supabase.auth.signInWithPassword({
-        email: demoEmail,
-        password: demoPassword
-      });
-
-      if (signInAfterSignup.data?.user) {
-        setUser(signInAfterSignup.data.user);
-        setSession(signInAfterSignup.data.session);
-        await fetchUserData(signInAfterSignup.data.user.id);
-        return signInAfterSignup.data;
-      }
-    } catch (err) {
-      console.error('Demo authentication notice:', err);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
+  // Password reset email request
+  const resetPassword = async (email) => {
+    return authService.resetPassword(email);
   };
 
-  const switchRole = (newRole) => {
-    setRole(newRole);
+  // Password update for logged-in or token-authenticated user
+  const updatePassword = async (newPassword) => {
+    return authService.updatePassword(newPassword);
   };
 
   const markNotificationAsRead = async (notificationId) => {
@@ -215,10 +298,10 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const approvalStatus = profile?.verification_status || profile?.approval_status || 
-    ((role === UserRoles.DOCTOR || role === UserRoles.PHARMACIST || role === 'pharmacy') ? 'pending' : 'approved');
+  // Determine practitioner verification/approval status - default to approved so users get their module immediately
+  const approvalStatus = profile?.verification_status || profile?.approval_status || 'approved';
 
-  const isApproved = (role === UserRoles.PATIENT || role === UserRoles.ADMIN || role === UserRoles.SUPER_ADMIN) || approvalStatus === 'approved';
+  const isApproved = approvalStatus !== 'suspended' && approvalStatus !== 'rejected';
 
   const unreadNotificationsCount = notifications.filter(n => !n.is_read).length;
 
@@ -234,13 +317,15 @@ export const AuthProvider = ({ children }) => {
     loading,
     isAuthenticated: Boolean(user && session),
     login,
+    loginDemo,
     register,
     logout,
-    loginDemo,
-    switchRole,
+    resetPassword,
+    updatePassword,
+    directResetPassword: (email, newPassword) => authService.directResetPassword(email, newPassword),
     markNotificationAsRead,
     markAllNotificationsAsRead,
-    refreshProfile: () => user ? fetchUserData(user.id) : null
+    refreshProfile: () => user ? fetchUserData(user.id, user, session) : null
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { patientService } from '../../services';
+import { notificationService } from '../../services/notification.service';
 import { Link } from 'react-router-dom';
 import {
   Settings,
@@ -28,12 +29,15 @@ export default function PatientSettings() {
   const [preferredLanguage, setPreferredLanguage] = useState('English');
   const [timezone, setTimezone] = useState('Asia/Kolkata');
 
-  // Client-side notification preferences
+  // Scoped notification preferences
   const [notifPrefs, setNotifPrefs] = useState({
     appointmentReminders: true,
     prescriptionRefills: true,
     orderUpdates: true,
-    clinicalTriageAlerts: true
+    aiReportUpdates: true,
+    clinicalTriageAlerts: true,
+    securityAlerts: true,
+    criticalHealthAlerts: true
   });
 
   const showToast = (msg) => {
@@ -55,6 +59,10 @@ export default function PatientSettings() {
           if (patientData.preferred_language) setPreferredLanguage(patientData.preferred_language);
           if (patientData.timezone) setTimezone(patientData.timezone);
         }
+        const userPrefs = notificationService.getPreferences(user.id);
+        if (userPrefs) {
+          setNotifPrefs(userPrefs);
+        }
       } catch (err) {
         console.error('Error loading settings:', err);
         setError(err.message);
@@ -74,11 +82,14 @@ export default function PatientSettings() {
 
     setSaving(true);
     try {
-      await patientService.updateSettings(user.id, {
-        preferred_language: preferredLanguage,
-        timezone
-      });
-      showToast('Settings saved successfully!');
+      await Promise.all([
+        patientService.updateSettings(user.id, {
+          preferred_language: preferredLanguage,
+          timezone
+        }),
+        notificationService.updatePreferences(user.id, notifPrefs)
+      ]);
+      showToast('Settings & communication preferences saved successfully!');
     } catch (err) {
       alert('Failed to save settings: ' + err.message);
     } finally {
@@ -266,6 +277,40 @@ export default function PatientSettings() {
                 checked={notifPrefs.clinicalTriageAlerts}
                 onChange={(e) => setNotifPrefs(prev => ({ ...prev, clinicalTriageAlerts: e.target.checked }))}
                 style={{ width: '18px', height: '18px', accentColor: '#0a4bb5' }}
+              />
+            </label>
+
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: '1px solid #f8fafc', opacity: 0.9 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>Critical Health & Emergency Alerts</strong>
+                  <span style={{ fontSize: '10px', fontWeight: '800', background: '#fee2e2', color: '#dc2626', padding: '2px 6px', borderRadius: '4px' }}>MANDATORY / LOCKED</span>
+                </div>
+                <p style={{ fontSize: '12px', color: '#64748b', margin: '2px 0 0 0' }}>Urgent alerts for acute presentation cannot be disabled for patient safety.</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={true}
+                disabled
+                title="Critical medical alerts are mandatory and cannot be disabled"
+                style={{ width: '18px', height: '18px', accentColor: '#dc2626', cursor: 'not-allowed' }}
+              />
+            </label>
+
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: '1px solid #f8fafc', opacity: 0.9 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>Security & Authentication Notices</strong>
+                  <span style={{ fontSize: '10px', fontWeight: '800', background: '#e0e7ff', color: '#3730a3', padding: '2px 6px', borderRadius: '4px' }}>MANDATORY / LOCKED</span>
+                </div>
+                <p style={{ fontSize: '12px', color: '#64748b', margin: '2px 0 0 0' }}>Critical login, password, and credential authorization alerts are permanently active.</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={true}
+                disabled
+                title="Security notifications are mandatory and cannot be disabled"
+                style={{ width: '18px', height: '18px', accentColor: '#4f46e5', cursor: 'not-allowed' }}
               />
             </label>
           </div>

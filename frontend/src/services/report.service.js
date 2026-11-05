@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { notificationService } from './notification.service';
 
 /**
  * Production Health Report & Storage Service
@@ -45,6 +46,24 @@ export const reportService = {
       .single();
 
     if (dbError) throw new Error(`Database record failed: ${dbError.message}`);
+
+    // 4. Dispatch notification to patient
+    if (record?.id && patientId) {
+      try {
+        await notificationService.dispatchNotification({
+          userId: patientId,
+          templateKey: 'REPORT_ANALYSIS_READY',
+          params: { reportId: record.id },
+          category: 'report',
+          priority: 'NORMAL',
+          idempotencyKey: `notif_report_${record.id}`,
+          link: '/reports'
+        });
+      } catch (e) {
+        console.warn('Report notification dispatch note:', e.message);
+      }
+    }
+
     return record;
   },
 

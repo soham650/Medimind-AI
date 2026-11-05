@@ -13,4 +13,5 @@ export { aiService } from './ai.service';
 export { adminService } from './admin.service';
 export { abdmService } from './abdm.service';
 export { labService } from './lab.service';
+export { WebRTCVideoProvider, CONNECTION_STATES, PEER_ROLES } from './webrtc';
 

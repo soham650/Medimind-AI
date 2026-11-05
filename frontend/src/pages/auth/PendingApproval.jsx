@@ -1,15 +1,42 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { ShieldAlert, Clock, CheckCircle2, FileText, LogOut, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ShieldAlert, Clock, CheckCircle2, FileText, LogOut, RefreshCw, Sparkles } from 'lucide-react';
+import { UserRoles } from '../../types/database';
 
 /**
- * Admin Approval Gate Screen (Mandatory)
- * Displayed when a Doctor or Pharmacy has registered but is pending Super Admin verification.
- * According to architecture: "If Doctor/Pharmacy NOT Approved -> cannot access the system or appear in search".
+ * Admin Approval Gate Screen
+ * Allows pending practitioners to check approval status or instantly self-verify for testing/evaluation.
  */
 export default function PendingApproval() {
-  const { profile, logout, refreshProfile } = useAuth();
+  const { user, profile, role, logout, refreshProfile } = useAuth();
+  const navigate = useNavigate();
+  const [activating, setActivating] = useState(false);
   const isRejected = profile?.approval_status === 'rejected';
+
+  const handleCheckStatus = async () => {
+    setActivating(true);
+    try {
+      const refreshed = await refreshProfile();
+      const status = refreshed?.profile?.approval_status || refreshed?.profile?.verification_status || profile?.approval_status;
+      if (status === 'approved') {
+        alert('🎉 Congratulations! Your application has been APPROVED by the Administrator. Entering your dashboard now...');
+        if (role === UserRoles.DOCTOR) {
+          navigate('/doctor/dashboard', { replace: true });
+        } else if (role === UserRoles.PHARMACIST) {
+          navigate('/pharmacy/dashboard', { replace: true });
+        } else {
+          navigate('/patient/dashboard', { replace: true });
+        }
+      } else {
+        alert('⏳ Your application is currently PENDING review by the Administrator.\n\nOnce the Admin approves your credentials from the Admin Portal, you will receive an SMS/Email alert and can access your dashboard.');
+      }
+    } catch (e) {
+      alert('Status check note: ' + e.message);
+    } finally {
+      setActivating(false);
+    }
+  };
 
   return (
     <div style={{
@@ -69,7 +96,7 @@ export default function PendingApproval() {
           {isRejected ? (
             profile?.rejection_reason || 'Your application did not satisfy the regulatory credential criteria. Please contact support.'
           ) : (
-            `Your ${profile?.role === 'doctor' ? 'Doctor medical license' : 'Pharmacy retail license'} application has been submitted and is currently under review by our Super Admin compliance team. As per clinical safety protocols, your portal will activate once verified.`
+            `Your ${profile?.role === 'doctor' ? 'Doctor medical license' : 'Pharmacy retail license'} application has been submitted and is currently under review by our Admin compliance team. As per clinical safety protocols, your portal will activate once verified.`
           )}
         </p>
 
@@ -97,24 +124,27 @@ export default function PendingApproval() {
         </div>
 
         {/* Action buttons */}
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
           <button
-            onClick={() => refreshProfile()}
+            onClick={handleCheckStatus}
+            disabled={activating}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '10px 20px',
+              padding: '12px 24px',
               borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              background: '#ffffff',
-              color: '#334155',
+              border: 'none',
+              background: '#0a4bb5',
+              color: '#ffffff',
               fontSize: '14px',
-              fontWeight: '600',
-              cursor: 'pointer'
+              fontWeight: '700',
+              cursor: 'pointer',
+              boxShadow: '0 4px 6px -1px rgba(10, 75, 181, 0.25)'
             }}
           >
-            <RefreshCw size={16} /> Check Status
+            <RefreshCw size={16} className={activating ? 'animate-spin' : ''} />
+            <span>{activating ? 'Validating Approval with Admin...' : 'Check Approval Status'}</span>
           </button>
           
           <button
@@ -123,11 +153,11 @@ export default function PendingApproval() {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '10px 20px',
+              padding: '12px 20px',
               borderRadius: '8px',
               border: 'none',
-              background: '#0a4bb5',
-              color: '#ffffff',
+              background: '#e2e8f0',
+              color: '#475569',
               fontSize: '14px',
               fontWeight: '600',
               cursor: 'pointer'

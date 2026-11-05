@@ -5,7 +5,6 @@ import {
   Users,
   Shield,
   Search,
-  Filter,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -16,19 +15,22 @@ import {
   Lock,
   Mail,
   Calendar,
-  ShieldAlert
+  Eye,
+  X
 } from 'lucide-react';
 
 export default function UserManagement() {
-  const { user, profile } = useAuth();
+  const { user: currentAuthUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [roleFilter, setRoleFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [updatingId, setUpdatingId] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -36,6 +38,7 @@ export default function UserManagement() {
     try {
       const res = await adminService.getUsers({
         role: roleFilter,
+        status: statusFilter,
         search: searchQuery,
         limit: 100
       });
@@ -51,7 +54,7 @@ export default function UserManagement() {
 
   useEffect(() => {
     fetchUsers();
-  }, [roleFilter]);
+  }, [roleFilter, statusFilter]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -63,17 +66,30 @@ export default function UserManagement() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const handleToggleStatus = async (userId, currentStatus) => {
-    const nextStatus = currentStatus === 'approved' ? 'suspended' : 'approved';
-    setUpdatingId(userId);
+  const handleSuspend = async (u) => {
+    const reason = prompt(`Reason for suspending user "${u.full_name || u.name || u.email}":`, 'Compliance investigation / Terms violation');
+    if (!reason) return;
+    setUpdatingId(u.id);
     try {
-      await adminService.updateUserStatus(userId, nextStatus);
-      setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, approval_status: nextStatus } : u))
-      );
-      showToast(`User status updated to ${nextStatus}.`);
+      await adminService.suspendUser(u.id, reason);
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, approval_status: 'suspended', status: 'suspended' } : x));
+      showToast(`User ${u.full_name || u.email} has been suspended.`);
     } catch (err) {
-      alert('Status update failed: ' + err.message);
+      alert('Suspension failed: ' + err.message);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleReactivate = async (u) => {
+    if (!window.confirm(`Reactivate account for "${u.full_name || u.name || u.email}"?`)) return;
+    setUpdatingId(u.id);
+    try {
+      await adminService.reactivateUser(u.id);
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, approval_status: 'approved', status: 'active' } : x));
+      showToast(`User ${u.full_name || u.email} reactivated successfully.`);
+    } catch (err) {
+      alert('Reactivation failed: ' + err.message);
     } finally {
       setUpdatingId(null);
     }
@@ -81,32 +97,37 @@ export default function UserManagement() {
 
   const getRoleBadge = (role) => {
     switch (role) {
-      case 'doctor':
-        return { bg: '#dcfce7', color: '#166534', label: 'Doctor' };
-      case 'pharmacy':
-        return { bg: '#eff6ff', color: '#1d4ed8', label: 'Pharmacy' };
       case 'admin':
-        return { bg: '#fef3c7', color: '#92400e', label: 'Admin' };
+        return { bg: '#fef3c7', color: '#b45309', label: 'Admin' };
+      case 'doctor':
+        return { bg: '#eff6ff', color: '#1d4ed8', label: 'Doctor' };
+      case 'pharmacist':
+      case 'pharmacy':
+        return { bg: '#f0fdf4', color: '#15803d', label: 'Pharmacist' };
       default:
-        return { bg: '#f1f5f9', color: '#334155', label: 'Patient' };
+        return { bg: '#f1f5f9', color: '#475569', label: 'Patient' };
     }
   };
 
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'approved':
-        return { bg: '#dcfce7', color: '#15803d', label: 'Active / Approved', icon: CheckCircle2 };
-      case 'suspended':
-        return { bg: '#fee2e2', color: '#b91c1c', label: 'Suspended', icon: Ban };
-      case 'rejected':
-        return { bg: '#fee2e2', color: '#b91c1c', label: 'Rejected', icon: UserX };
-      default:
-        return { bg: '#fef3c7', color: '#b45309', label: 'Pending Review', icon: Clock };
+  const getStatusBadge = (userItem) => {
+    const isSuspended = userItem.status === 'suspended' || userItem.approval_status === 'suspended';
+    const isApproved = userItem.approval_status === 'approved' || userItem.status === 'active';
+    const isRejected = userItem.approval_status === 'rejected';
+
+    if (isSuspended) {
+      return { bg: '#fee2e2', color: '#b91c1c', label: 'Suspended', icon: Ban };
     }
+    if (isRejected) {
+      return { bg: '#fee2e2', color: '#b91c1c', label: 'Rejected', icon: UserX };
+    }
+    if (isApproved) {
+      return { bg: '#dcfce7', color: '#15803d', label: 'Active', icon: CheckCircle2 };
+    }
+    return { bg: '#fef3c7', color: '#b45309', label: 'Pending', icon: Clock };
   };
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1240px', margin: '0 auto', fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div style={{ padding: '28px', maxWidth: '1400px', margin: '0 auto', color: '#0f172a' }}>
       {/* Toast Alert */}
       {toastMessage && (
         <div style={{
@@ -131,16 +152,16 @@ export default function UserManagement() {
       )}
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0a4bb5', fontWeight: '700', fontSize: '13px' }}>
-            <Users size={18} /> GOVERNANCE & ACCESS CONTROL
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '4px 10px', background: '#eff6ff', borderRadius: '6px', color: '#0a4bb5', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <Users size={16} /> User Governance & Accounts
           </div>
-          <h1 style={{ fontSize: '26px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>
-            User Accounts & Role Governance
+          <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#0f172a', marginTop: '6px' }}>
+            Platform Account Registry
           </h1>
-          <p style={{ fontSize: '14px', color: '#64748b' }}>
-            Manage platform authentication profiles and enforce least-privilege security. Protected Health Information (PHI) is hidden from administrative logs.
+          <p style={{ fontSize: '14px', color: '#64748b', marginTop: '2px' }}>
+            Browse and govern accounts across patients, physicians, dispensaries, and administrators.
           </p>
         </div>
 
@@ -149,167 +170,173 @@ export default function UserManagement() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            padding: '10px 16px',
-            background: '#ffffff',
-            border: '1px solid #cbd5e1',
+            gap: '8px',
+            padding: '8px 16px',
             borderRadius: '8px',
+            border: '1px solid #cbd5e1',
+            background: '#ffffff',
+            cursor: 'pointer',
             fontSize: '13px',
             fontWeight: '600',
-            color: '#334155',
-            cursor: 'pointer'
+            color: '#334155'
           }}
         >
-          <RefreshCw size={15} /> Refresh Directory
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          Refresh
         </button>
       </div>
 
-      {/* HIPAA Compliance Note Banner */}
-      <div style={{
-        padding: '14px 18px',
-        background: '#eff6ff',
-        border: '1px solid #bfdbfe',
-        borderRadius: '10px',
-        color: '#1e40af',
-        fontSize: '13px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        marginBottom: '24px'
-      }}>
-        <Lock size={18} />
-        <span>
-          <strong>Healthcare Privacy Safeguard:</strong> This administrative view restricts access to identity metadata (Name, Email, Role, Approval Status). Clinical diagnoses, medical records, and prescriptions remain strictly confidential to patients and authorized clinicians.
-        </span>
-      </div>
-
-      {error && (
-        <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', color: '#b91c1c', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <AlertCircle size={20} />
-          <span>{error}</span>
-        </div>
-      )}
-
       {/* Filter and Search Bar */}
-      <div style={{
-        background: '#ffffff',
-        border: '1px solid #e2e8f0',
-        borderRadius: '12px',
-        padding: '16px',
-        marginBottom: '24px',
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '16px',
-        alignItems: 'center',
-        justifyContent: 'space-between'
-      }}>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      <div style={{ background: '#ffffff', padding: '16px 20px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
+        {/* Role Filters */}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           {[
-            { key: 'all', label: `All Users (${totalCount})` },
-            { key: 'patient', label: 'Patients' },
-            { key: 'doctor', label: 'Doctors' },
-            { key: 'pharmacy', label: 'Pharmacies' },
-            { key: 'admin', label: 'Admins' }
-          ].map((tab) => (
+            { id: 'all', label: 'All Roles' },
+            { id: 'patient', label: 'Patients' },
+            { id: 'doctor', label: 'Doctors' },
+            { id: 'pharmacist', label: 'Pharmacists' },
+            { id: 'admin', label: 'Admins' }
+          ].map(r => (
             <button
-              key={tab.key}
-              onClick={() => setRoleFilter(tab.key)}
+              key={r.id}
+              onClick={() => setRoleFilter(r.id)}
               style={{
-                padding: '8px 16px',
-                borderRadius: '8px',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: '700',
                 border: 'none',
-                background: roleFilter === tab.key ? '#0a4bb5' : '#f1f5f9',
-                color: roleFilter === tab.key ? '#ffffff' : '#475569',
-                fontSize: '13px',
-                fontWeight: '600',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                background: roleFilter === r.id ? '#0a4bb5' : '#f1f5f9',
+                color: roleFilter === r.id ? '#ffffff' : '#475569'
               }}
             >
-              {tab.label}
+              {r.label}
             </button>
           ))}
         </div>
 
-        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '6px 12px', minWidth: '280px' }}>
-          <Search size={16} color="#94a3b8" />
-          <input
-            type="text"
-            placeholder="Search by name or email..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ border: 'none', background: 'transparent', outline: 'none', paddingLeft: '8px', fontSize: '13px', width: '100%', color: '#1e293b' }}
-          />
+        {/* Status Filters */}
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {[
+            { id: 'all', label: 'All Status' },
+            { id: 'approved', label: 'Active' },
+            { id: 'pending', label: 'Pending' },
+            { id: 'suspended', label: 'Suspended' }
+          ].map(s => (
+            <button
+              key={s.id}
+              onClick={() => setStatusFilter(s.id)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: '700',
+                border: 'none',
+                cursor: 'pointer',
+                background: statusFilter === s.id ? '#334155' : '#f8fafc',
+                color: statusFilter === s.id ? '#ffffff' : '#64748b'
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Search Input */}
+        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px', minWidth: '260px' }}>
+          <div style={{ position: 'relative', width: '100%' }}>
+            <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '10px' }} />
+            <input
+              type="text"
+              placeholder="Search name, email..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 34px',
+                borderRadius: '8px',
+                border: '1px solid #cbd5e1',
+                fontSize: '13px',
+                outline: 'none'
+              }}
+            />
+          </div>
+          <button
+            type="submit"
+            style={{
+              padding: '8px 14px',
+              background: '#0a4bb5',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: '700',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            Search
+          </button>
         </form>
       </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div style={{ padding: '80px', textAlign: 'center', background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-          <RefreshCw className="animate-spin" size={32} color="#0a4bb5" style={{ margin: '0 auto 12px auto' }} />
-          <p style={{ color: '#64748b', fontSize: '14px', fontWeight: '600' }}>Querying User Directory & Permissions...</p>
-        </div>
-      )}
+      {/* Users Count Summary */}
+      <div style={{ marginBottom: '12px', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>
+        Showing {users.length} of {totalCount} registered accounts
+      </div>
 
       {/* Users Table */}
-      {!loading && (
-        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-          {users.length === 0 ? (
-            <div style={{ padding: '64px', textAlign: 'center', color: '#64748b' }}>
-              <Users size={48} color="#94a3b8" style={{ margin: '0 auto 12px auto' }} />
-              <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#0f172a' }}>No Users Found</h3>
-              <p style={{ fontSize: '13px', marginTop: '4px' }}>No user profiles match your active role or search criteria.</p>
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+      <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 12px auto', color: '#0a4bb5' }} />
+            Loading accounts...
+          </div>
+        ) : users.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+            No users match the selected filters.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: '700' }}>
-                  <th style={{ padding: '14px 18px' }}>User Identity</th>
-                  <th style={{ padding: '14px 18px' }}>Platform Role</th>
-                  <th style={{ padding: '14px 18px' }}>Account Status</th>
-                  <th style={{ padding: '14px 18px' }}>Registered On</th>
-                  <th style={{ padding: '14px 18px', textAlign: 'right' }}>Status Governance</th>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left', color: '#64748b' }}>
+                  <th style={{ padding: '12px 16px', fontWeight: '600' }}>User / Identity</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600' }}>Role</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600' }}>Status</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600' }}>Registered</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => {
+                {users.map(u => {
                   const roleBadge = getRoleBadge(u.role);
-                  const statusBadge = getStatusBadge(u.approval_status);
+                  const statusBadge = getStatusBadge(u);
                   const StatusIcon = statusBadge.icon;
-                  const isUpdating = updatingId === u.id;
+                  const isSuspended = u.status === 'suspended' || u.approval_status === 'suspended';
 
                   return (
                     <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '16px 18px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <div style={{
-                            width: '36px',
-                            height: '36px',
-                            borderRadius: '50%',
-                            background: '#eff6ff',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#0a4bb5',
-                            fontWeight: '800',
-                            fontSize: '13px'
-                          }}>
-                            {(u.full_name || u.email || 'U').charAt(0).toUpperCase()}
+                      <td style={{ padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#e0f2fe', color: '#0369a1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '14px' }}>
+                            {(u.full_name || u.name || u.email || 'U')[0].toUpperCase()}
                           </div>
                           <div>
-                            <strong style={{ display: 'block', fontSize: '14px', color: '#0f172a' }}>
-                              {u.full_name || 'Anonymous User'}
-                            </strong>
-                            <span style={{ fontSize: '12px', color: '#64748b' }}>{u.email}</span>
+                            <div style={{ fontWeight: '700', color: '#0f172a' }}>
+                              {u.full_name || u.name || 'Unnamed User'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>
+                              {u.email}
+                            </div>
                           </div>
                         </div>
                       </td>
-
-                      <td style={{ padding: '16px 18px' }}>
+                      <td style={{ padding: '12px 16px' }}>
                         <span style={{
-                          display: 'inline-block',
-                          padding: '4px 10px',
-                          borderRadius: '12px',
-                          fontSize: '12px',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
                           fontWeight: '700',
                           background: roleBadge.bg,
                           color: roleBadge.color
@@ -317,52 +344,180 @@ export default function UserManagement() {
                           {roleBadge.label}
                         </span>
                       </td>
-
-                      <td style={{ padding: '16px 18px' }}>
+                      <td style={{ padding: '12px 16px' }}>
                         <span style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '5px',
-                          padding: '4px 10px',
-                          borderRadius: '12px',
-                          fontSize: '12px',
+                          gap: '4px',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
                           fontWeight: '700',
                           background: statusBadge.bg,
                           color: statusBadge.color
                         }}>
-                          <StatusIcon size={13} /> {statusBadge.label}
+                          <StatusIcon size={12} />
+                          {statusBadge.label}
                         </span>
                       </td>
-
-                      <td style={{ padding: '16px 18px', color: '#64748b' }}>
-                        {u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Initial Setup'}
+                      <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '12px' }}>
+                        {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
                       </td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => setSelectedUser(u)}
+                            title="View Account Details"
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              background: '#ffffff',
+                              color: '#334155',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontSize: '12px',
+                              fontWeight: '600'
+                            }}
+                          >
+                            <Eye size={13} /> Details
+                          </button>
 
-                      <td style={{ padding: '16px 18px', textAlign: 'right' }}>
-                        <button
-                          onClick={() => handleToggleStatus(u.id, u.approval_status)}
-                          disabled={isUpdating || u.role === 'admin'}
-                          style={{
-                            padding: '6px 14px',
-                            background: u.approval_status === 'approved' ? '#fee2e2' : '#dcfce7',
-                            color: u.approval_status === 'approved' ? '#b91c1c' : '#15803d',
-                            border: 'none',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            fontWeight: '700',
-                            cursor: u.role === 'admin' ? 'not-allowed' : 'pointer',
-                            opacity: u.role === 'admin' ? 0.5 : 1
-                          }}
-                        >
-                          {isUpdating ? 'Updating...' : u.approval_status === 'approved' ? 'Suspend' : 'Activate'}
-                        </button>
+                          {isSuspended ? (
+                            <button
+                              onClick={() => handleReactivate(u)}
+                              disabled={updatingId === u.id}
+                              style={{
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: '#16a34a',
+                                color: '#ffffff',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '12px',
+                                fontWeight: '700'
+                              }}
+                            >
+                              <UserCheck size={13} /> Reactivate
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleSuspend(u)}
+                              disabled={updatingId === u.id || u.id === currentAuthUser?.id}
+                              style={{
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: '#dc2626',
+                                color: '#ffffff',
+                                cursor: u.id === currentAuthUser?.id ? 'not-allowed' : 'pointer',
+                                opacity: u.id === currentAuthUser?.id ? 0.5 : 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '12px',
+                                fontWeight: '700'
+                              }}
+                            >
+                              <Ban size={13} /> Suspend
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-          )}
+          </div>
+        )}
+      </div>
+
+      {/* User Details Modal */}
+      {selectedUser && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.6)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '16px',
+            maxWidth: '560px',
+            width: '100%',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+            overflow: 'hidden'
+          }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+                Account Administrative Record
+              </h3>
+              <button
+                onClick={() => setSelectedUser(null)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '13px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px' }}>
+                <span style={{ color: '#64748b', fontWeight: '600' }}>User ID:</span>
+                <span style={{ fontFamily: 'monospace', color: '#334155' }}>{selectedUser.id}</span>
+
+                <span style={{ color: '#64748b', fontWeight: '600' }}>Full Name:</span>
+                <span style={{ fontWeight: '700', color: '#0f172a' }}>{selectedUser.full_name || selectedUser.name || 'Not provided'}</span>
+
+                <span style={{ color: '#64748b', fontWeight: '600' }}>Email:</span>
+                <span style={{ color: '#0a4bb5' }}>{selectedUser.email}</span>
+
+                <span style={{ color: '#64748b', fontWeight: '600' }}>Platform Role:</span>
+                <span>{selectedUser.role}</span>
+
+                <span style={{ color: '#64748b', fontWeight: '600' }}>Approval State:</span>
+                <span>{selectedUser.approval_status || 'none'}</span>
+
+                <span style={{ color: '#64748b', fontWeight: '600' }}>Account Status:</span>
+                <span>{selectedUser.status || 'active'}</span>
+
+                <span style={{ color: '#64748b', fontWeight: '600' }}>Phone:</span>
+                <span>{selectedUser.phone || '—'}</span>
+
+                <span style={{ color: '#64748b', fontWeight: '600' }}>Created At:</span>
+                <span>{selectedUser.created_at ? new Date(selectedUser.created_at).toLocaleString() : '—'}</span>
+              </div>
+
+              <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#475569', fontSize: '12px' }}>
+                <div style={{ fontWeight: '700', color: '#0f172a', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Shield size={14} color="#0a4bb5" /> HIPAA Least-Privilege Safeguard
+                </div>
+                Clinical consultation notes, diagnoses, and medical charts are strictly isolated from administrative views and cannot be accessed from user management.
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 24px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setSelectedUser(null)}
+                style={{ padding: '8px 16px', background: '#334155', color: '#ffffff', borderRadius: '8px', border: 'none', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

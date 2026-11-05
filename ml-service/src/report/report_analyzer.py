@@ -94,6 +94,37 @@ class MedicalReportAnalyzer:
         # Step 1: Extract structured report findings
         report_analysis = self.analyze_document_bytes(file_bytes, filename, content_type)
 
+        # Non-Medical Document Guard: reject non-medical images immediately
+        if not report_analysis.is_medical_report:
+            rej_reason = report_analysis.rejection_reason or "This is not a medical report. Please upload a clear photo or PDF of a diagnostic lab report or clinical document."
+            return ReportAssessmentResponse(
+                status="rejected",
+                is_medical_report=False,
+                rejection_reason=rej_reason,
+                assessment_type="Document Rejection",
+                analysis_version=PROMPT_VERSION,
+                model_version="symptom-rf-v1",
+                report_analysis=report_analysis,
+                mapped_symptoms=[],
+                symptom_mapping_status="rejected_non_medical",
+                possible_conditions=[],
+                risk_assessment={
+                    "is_emergency": False,
+                    "triage_level": "Non-Clinical",
+                    "red_flags": [],
+                    "vitals_warnings": [],
+                    "triage_timeframe": "N/A",
+                    "clinical_recommendation": rej_reason
+                },
+                doctor_recommendation=DoctorRecommendationInfo(
+                    recommended_specialist="General Physician",
+                    rationale=rej_reason,
+                    urgency_level="Non-Clinical"
+                ),
+                recommendations=[],
+                disclaimer=STANDARD_DISCLAIMER
+            )
+
         # Step 2: Normalize findings & perform controlled symptom mapping
         normalized_records, mapped_symptoms = self.normalizer.normalize_findings(
             findings=report_analysis.findings,
@@ -158,8 +189,55 @@ class MedicalReportAnalyzer:
             urgency_level=risk_eval["triage_level"]
         )
 
+        # Synthesize patient-friendly recommendations tailored to report biomarkers
+        report_recs = []
+        if risk_eval.get("is_emergency"):
+            report_recs.append({
+                "title": "Immediate Emergency Medical Review",
+                "description": "Critical laboratory biomarkers detected. Seek emergency medical evaluation at the nearest hospital or call 108 / 911 immediately.",
+                "category": "emergency",
+                "icon": "emergency"
+            })
+            report_recs.append({
+                "title": "Bring Diagnostic Report",
+                "description": "Carry a physical or digital copy of this lab report directly to the emergency clinical care team.",
+                "category": "monitoring",
+                "icon": "monitor_heart"
+            })
+        else:
+            report_recs.append({
+                "title": f"Review Findings with a {recommended_spec}",
+                "description": f"Schedule a clinical consultation with a {recommended_spec} to correlate these laboratory results with your physical health.",
+                "category": "doctor_consultation",
+                "icon": "medical_services"
+            })
+            abnormal_findings = [f for f in report_analysis.findings if f.status in ["high", "low", "abnormal"]]
+            if abnormal_findings:
+                ab_names = ", ".join([f.name for f in abnormal_findings[:2]])
+                report_recs.append({
+                    "title": "Track Symptoms & Prepare Questions",
+                    "description": f"Note down any recent physical sensations or dietary habits related to {ab_names} for your doctor.",
+                    "category": "monitoring",
+                    "icon": "monitor_heart"
+                })
+            else:
+                report_recs.append({
+                    "title": "Maintain Balanced Lifestyle",
+                    "description": "Your analyzed parameters reflect optimal reference ranges. Maintain healthy hydration, balanced nutrition, and regular sleep.",
+                    "category": "home_care",
+                    "icon": "water_drop"
+                })
+            report_recs.append({
+                "title": "Archive in Longitudinal Record",
+                "description": "Keep this diagnostic report saved in your medical records for future longitudinal health comparison.",
+                "category": "monitoring",
+                "icon": "healing"
+            })
+
         return ReportAssessmentResponse(
             status="success",
+            is_medical_report=True,
+            rejection_reason=None,
             assessment_type="AI-assisted preliminary assessment",
             analysis_version=PROMPT_VERSION,
             model_version="symptom-rf-v1",
@@ -169,6 +247,7 @@ class MedicalReportAnalyzer:
             possible_conditions=possible_conditions,
             risk_assessment=risk_eval,
             doctor_recommendation=doctor_recommendation,
+            recommendations=report_recs,
             disclaimer=STANDARD_DISCLAIMER
         )
 
@@ -218,9 +297,20 @@ class MedicalReportAnalyzer:
             except Exception:
                 continue
 
+        is_med = bool(raw.get("is_medical_report", True))
+        rejection_reason = raw.get("rejection_reason")
+        if not is_med and not rejection_reason:
+            rejection_reason = "This is not a medical report. Please upload a clear photo or PDF of a diagnostic lab report or clinical document."
+
+        rep_type = raw.get("report_type")
+        if not rep_type or not isinstance(rep_type, str):
+            rep_type = "General Medical Report"
+
         return MedicalReportAnalysis(
             analysis_version=PROMPT_VERSION,
-            report_type=raw.get("report_type", "General Medical Report"),
+            is_medical_report=is_med,
+            rejection_reason=rejection_reason,
+            report_type=rep_type,
             report_date=raw.get("report_date"),
             findings=findings,
             symptoms=symptoms,

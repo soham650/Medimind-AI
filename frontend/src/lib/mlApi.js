@@ -2,20 +2,41 @@ const ML_SERVICE_URL = import.meta.env.VITE_ML_SERVICE_URL || 'http://localhost:
 
 async function fetchFromML(endpoint, options = {}) {
   const url = `${ML_SERVICE_URL}${endpoint}`;
-  const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    ...options,
-  });
+  const controller = new AbortController();
+  const timeoutMs = options.timeout || 30000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || `ML Service request failed: GET ${endpoint}`);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      ...options,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let parsedDetail = '';
+      try {
+        const parsed = JSON.parse(errorText);
+        parsedDetail = parsed.detail || parsed.message || '';
+      } catch (_e) {
+        parsedDetail = errorText;
+      }
+      throw new Error(parsedDetail || `ML Service request failed: ${options.method || 'GET'} ${endpoint} (${response.status})`);
+    }
+
+    return await response.json();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`ML Service request to ${endpoint} timed out after ${timeoutMs / 1000}s. Please verify backend service status.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return await response.json();
 }
 
 export const mlApi = {
@@ -65,15 +86,33 @@ export const mlApi = {
 
   async analyzeReportAndAssess(payload) {
     if (payload instanceof FormData) {
-      const response = await fetch(`${ML_SERVICE_URL}/analyze_report_and_assess`, {
-        method: 'POST',
-        body: payload,
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Report assessment request failed.');
+      const controller = new AbortController();
+      const timeoutMs = 45000;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(`${ML_SERVICE_URL}/analyze_report_and_assess`, {
+          method: 'POST',
+          body: payload,
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          let detail = errorText;
+          try {
+            const parsed = JSON.parse(errorText);
+            detail = parsed.detail || parsed.message || errorText;
+          } catch (_e) {}
+          throw new Error(detail || 'Report assessment request failed.');
+        }
+        return await response.json();
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          throw new Error('Report analysis timed out after 45s. Please ensure the document is clear and try again.');
+        }
+        throw err;
+      } finally {
+        clearTimeout(timeoutId);
       }
-      return await response.json();
     }
 
     return await fetchFromML('/analyze_report_and_assess', {
@@ -91,4 +130,34 @@ export const mlApi = {
       }),
     });
   },
+
+  // Phase 8: Advanced AI Clinical Orchestration & RAG
+  async orchestrateClinicalAssessment(payload) {
+    return await fetchFromML('/orchestrate_clinical_assessment', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async orchestrateDoctorAssist(payload) {
+    return await fetchFromML('/orchestrate_doctor_assist', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async orchestrateChat(payload) {
+    return await fetchFromML('/orchestrate_chat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getRagKnowledge(symptoms = []) {
+    const query = Array.isArray(symptoms) && symptoms.length > 0
+      ? `?symptoms=${encodeURIComponent(symptoms.join(','))}`
+      : '';
+    return await fetchFromML(`/rag_knowledge${query}`);
+  },
 };
+

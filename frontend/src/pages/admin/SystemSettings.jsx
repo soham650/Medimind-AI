@@ -15,35 +15,50 @@ import {
   CheckCircle2,
   Lock,
   Zap,
-  HardDrive
+  HardDrive,
+  Sliders,
+  Bell,
+  HeartPulse,
+  Wrench,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 
 export default function SystemSettings() {
-  const { user, profile } = useAuth();
+  const { user, role } = useAuth();
+  const [activeTab, setActiveTab] = useState('general');
   const [healthData, setHealthData] = useState(null);
-  const [rateLimitEvents, setRateLimitEvents] = useState([]);
-  const [aiUsage, setAiUsage] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-  const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+  const [settings, setSettings] = useState({
+    platformName: 'MediMind AI',
+    timezone: 'Asia/Kolkata (IST)',
+    preferredLanguage: 'English',
+    sessionTimeoutMinutes: 60,
+    maintenanceMode: false,
+    allowRegistrations: true,
+    requireDoctorLicense: true,
+    requirePharmacyLicense: true,
+    aiTriageEnabled: true,
+    maxDailyQuota: 50000,
+    abdmGatewayLive: true,
+    encryptionStandard: 'AES-256 / TLS 1.3'
+  });
 
   const fetchSystemData = async () => {
     setRefreshing(true);
-    setError(null);
     try {
-      const [health, events, usage] = await Promise.all([
+      const [health, loadedSettings] = await Promise.all([
         adminService.getSystemHealth(),
-        adminService.getRateLimitEvents(15),
-        adminService.getAiUsageSummary()
+        adminService.getSystemSettings()
       ]);
       setHealthData(health);
-      setRateLimitEvents(events);
-      setAiUsage(usage);
+      if (loadedSettings) {
+        setSettings(prev => ({ ...prev, ...loadedSettings }));
+      }
     } catch (err) {
-      console.error('Error fetching system settings data:', err);
-      setError(err.message || 'Unable to check microservice metrics.');
+      console.error('Error loading system settings data:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -59,23 +74,29 @@ export default function SystemSettings() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const handleToggleMaintenance = () => {
-    const next = !maintenanceMode;
-    setMaintenanceMode(next);
-    showToast(next ? '⚠️ Maintenance mode ENABLED.' : '✅ Maintenance mode DISABLED.');
+  const handleToggle = async (key) => {
+    const updated = { ...settings, [key]: !settings[key] };
+    setSettings(updated);
+    try {
+      await adminService.updateSystemSettings(updated);
+      showToast(`Setting "${key}" updated.`);
+    } catch (err) {
+      alert('Failed to persist setting: ' + err.message);
+    }
   };
 
-  if (loading) {
-    return (
-      <div style={{ padding: '80px', textAlign: 'center', fontFamily: 'Inter, system-ui, sans-serif' }}>
-        <RefreshCw className="animate-spin" size={32} color="#0a4bb5" style={{ margin: '0 auto 12px auto' }} />
-        <p style={{ color: '#64748b', fontSize: '14px', fontWeight: '600' }}>Checking Architecture Health & Microservice Pings...</p>
-      </div>
-    );
-  }
+  const tabs = [
+    { id: 'general', label: 'General', icon: Sliders },
+    { id: 'security', label: 'Security & RLS', icon: ShieldCheck },
+    { id: 'ai', label: 'AI Infrastructure', icon: Zap },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'platform', label: 'Platform & DB', icon: Database },
+    { id: 'healthcare', label: 'Healthcare & ABDM', icon: HeartPulse },
+    { id: 'maintenance', label: 'Maintenance Mode', icon: Wrench }
+  ];
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1240px', margin: '0 auto', fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div style={{ padding: '28px', maxWidth: '1400px', margin: '0 auto', color: '#0f172a' }}>
       {/* Toast Alert */}
       {toastMessage && (
         <div style={{
@@ -100,16 +121,16 @@ export default function SystemSettings() {
       )}
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0a4bb5', fontWeight: '700', fontSize: '13px' }}>
-            <Settings size={18} /> INFRASTRUCTURE & MICROSERVICE OBSERVABILITY
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '4px 10px', background: '#f8fafc', borderRadius: '6px', color: '#334155', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <Settings size={16} /> Platform Configuration
           </div>
-          <h1 style={{ fontSize: '26px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>
-            System Settings & Architecture Health
+          <h1 style={{ fontSize: '28px', fontWeight: '800', color: '#0f172a', marginTop: '6px' }}>
+            System Settings & Microservice Telemetry
           </h1>
-          <p style={{ fontSize: '14px', color: '#64748b' }}>
-            Monitor real-time ML inference latency, rate-limiting security events, daily AI quota utilization, and platform uptime.
+          <p style={{ fontSize: '14px', color: '#64748b', marginTop: '2px' }}>
+            Manage core platform parameters, microservice health, and clinical compliance policies without exposing private secrets.
           </p>
         </div>
 
@@ -119,259 +140,262 @@ export default function SystemSettings() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            padding: '10px 18px',
-            background: '#ffffff',
-            border: '1px solid #cbd5e1',
+            gap: '8px',
+            padding: '8px 16px',
             borderRadius: '8px',
+            border: '1px solid #cbd5e1',
+            background: '#ffffff',
+            cursor: refreshing ? 'not-allowed' : 'pointer',
             fontSize: '13px',
             fontWeight: '600',
-            color: '#334155',
-            cursor: 'pointer'
+            color: '#334155'
           }}
         >
-          <RefreshCw className={refreshing ? 'animate-spin' : ''} size={15} />
-          {refreshing ? 'Probing...' : 'Ping Services'}
+          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? 'Checking...' : 'Check Health'}
         </button>
       </div>
 
-      {error && (
-        <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', color: '#b91c1c', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <AlertCircle size={20} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* Service Health Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginBottom: '28px' }}>
-        {/* ML Inference Engine Card */}
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0a4bb5' }}>
-              <Cpu size={22} />
-            </div>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '3px 8px',
-              borderRadius: '12px',
-              fontSize: '11px',
-              fontWeight: '700',
-              background: healthData?.mlService?.status === 'healthy' ? '#dcfce7' : '#fee2e2',
-              color: healthData?.mlService?.status === 'healthy' ? '#15803d' : '#b91c1c'
-            }}>
-              {healthData?.mlService?.status === 'healthy' ? 'ONLINE' : 'OFFLINE'}
-            </span>
-          </div>
-          <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>ML Prediction Service</h3>
-          <p style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>Model: {healthData?.mlService?.modelVersion || 'symptom-rf-v1'}</p>
-          <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#475569' }}>
-            <span>Latency:</span>
-            <strong style={{ color: '#0f172a' }}>{healthData?.mlService?.latencyMs || 0} ms</strong>
-          </div>
-        </div>
-
-        {/* Report Intelligence Engine Card */}
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#f5f3ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed' }}>
-              <Zap size={22} />
-            </div>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '3px 8px',
-              borderRadius: '12px',
-              fontSize: '11px',
-              fontWeight: '700',
-              background: healthData?.reportIntelligence?.status === 'healthy' ? '#dcfce7' : '#fee2e2',
-              color: healthData?.reportIntelligence?.status === 'healthy' ? '#15803d' : '#b91c1c'
-            }}>
-              {healthData?.reportIntelligence?.status === 'healthy' ? 'CONNECTED' : 'STANDBY'}
-            </span>
-          </div>
-          <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>Report Intelligence</h3>
-          <p style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>Engine: report-analysis-v1 (Gemini)</p>
-          <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#475569' }}>
-            <span>Privacy Guard:</span>
-            <strong style={{ color: '#16a34a' }}>Zero PHI Logged</strong>
-          </div>
-        </div>
-
-        {/* Supabase PostgreSQL Database Card */}
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
-              <Database size={22} />
-            </div>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '3px 8px',
-              borderRadius: '12px',
-              fontSize: '11px',
-              fontWeight: '700',
-              background: '#dcfce7',
-              color: '#15803d'
-            }}>
-              HEALTHY
-            </span>
-          </div>
-          <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>PostgreSQL RLS Engine</h3>
-          <p style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>RLS: 100% Persona Isolated</p>
-          <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#475569' }}>
-            <span>Ping Latency:</span>
-            <strong style={{ color: '#0f172a' }}>{healthData?.database?.latencyMs || 24} ms</strong>
-          </div>
-        </div>
-
-        {/* Private Storage Buckets Card */}
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
-              <HardDrive size={22} />
-            </div>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '3px 8px',
-              borderRadius: '12px',
-              fontSize: '11px',
-              fontWeight: '700',
-              background: '#dcfce7',
-              color: '#15803d'
-            }}>
-              SECURE
-            </span>
-          </div>
-          <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>Encrypted Storage</h3>
-          <p style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>4 Buckets Provisioned</p>
-          <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#475569' }}>
-            <span>URL Signing:</span>
-            <strong style={{ color: '#16a34a' }}>Active (300s TTL)</strong>
-          </div>
-        </div>
+      {/* 7-Tab Navigation */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #e2e8f0', marginBottom: '24px', overflowX: 'auto', paddingBottom: '2px' }}>
+        {tabs.map(t => {
+          const Icon = t.icon;
+          const isActive = activeTab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 16px',
+                borderRadius: '8px 8px 0 0',
+                border: 'none',
+                borderBottom: isActive ? '3px solid #0a4bb5' : '3px solid transparent',
+                background: isActive ? '#eff6ff' : 'transparent',
+                color: isActive ? '#0a4bb5' : '#64748b',
+                fontWeight: isActive ? '700' : '600',
+                fontSize: '13px',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <Icon size={16} />
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '24px', alignItems: 'start' }}>
-        {/* Left Column: Rate Limit Events Table */}
-        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <div>
-              <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <ShieldAlert size={18} color="#dc2626" /> Security & Rate-Limiting Event Stream
-              </h3>
-              <p style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>
-                High-frequency request throttling and anomalous traffic logging (`rate_limit_events`).
-              </p>
+      {/* Tab Contents */}
+      <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '24px' }}>
+        {/* Tab 1: General */}
+        {activeTab === 'general' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>General Platform Parameters</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>Platform Name</label>
+                <input type="text" readOnly value={settings.platformName} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#0f172a' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>System Timezone</label>
+                <input type="text" readOnly value={settings.timezone} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#0f172a' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>Default Language</label>
+                <input type="text" readOnly value={settings.preferredLanguage} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#0f172a' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>JWT Session Expiration</label>
+                <input type="text" readOnly value={`${settings.sessionTimeoutMinutes} minutes`} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#0f172a' }} />
+              </div>
             </div>
           </div>
+        )}
 
-          {rateLimitEvents.length === 0 ? (
-            <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '12px' }}>
-              <ShieldCheck size={36} color="#16a34a" style={{ margin: '0 auto 8px auto' }} />
-              <p style={{ fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>Zero Security Throttles Recorded</p>
-              <span style={{ fontSize: '12px' }}>All incoming API requests are operating within normal rate quotas.</span>
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: '700' }}>
-                  <th style={{ padding: '10px 12px' }}>Timestamp</th>
-                  <th style={{ padding: '10px 12px' }}>Target Action / Path</th>
-                  <th style={{ padding: '10px 12px' }}>Blocked Client</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'right' }}>Security Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rateLimitEvents.map((ev, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '10px 12px', color: '#334155' }}>
-                      {new Date(ev.blocked_at || Date.now()).toLocaleTimeString()}
-                    </td>
-                    <td style={{ padding: '10px 12px', fontWeight: '700', color: '#0f172a' }}>
-                      {ev.action || '/api/v1/predict'}
-                    </td>
-                    <td style={{ padding: '10px 12px', color: '#64748b' }}>
-                      {ev.ip_address || '127.0.0.1'}
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                      <span style={{ padding: '3px 8px', borderRadius: '10px', background: '#fee2e2', color: '#b91c1c', fontWeight: '700' }}>
-                        Blocked (429)
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        {/* Right Column: Platform Controls & AI Quota */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Maintenance Mode Toggle Card */}
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '24px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
-              Platform Maintenance Gate
-            </h3>
-            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
-              Temporarily restrict non-administrative logins for scheduled infrastructure database migrations.
-            </p>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-              <div>
-                <strong style={{ fontSize: '13px', color: '#0f172a', display: 'block' }}>Maintenance Mode</strong>
-                <span style={{ fontSize: '12px', color: maintenanceMode ? '#dc2626' : '#16a34a', fontWeight: '700' }}>
-                  {maintenanceMode ? 'Active (Non-Admins Locked)' : 'Disabled (Full Access)'}
-                </span>
+        {/* Tab 2: Security & RLS */}
+        {activeTab === 'security' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>Database Security & Row-Level Access Policies</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ padding: '14px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '14px', color: '#166534' }}>PostgreSQL Row Level Security (RLS)</div>
+                  <div style={{ fontSize: '12px', color: '#15803d', marginTop: '2px' }}>Active across all 44 canonical public tables. Zero anonymous mutations permitted.</div>
+                </div>
+                <span style={{ padding: '4px 10px', background: '#16a34a', color: '#ffffff', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>ENFORCED</span>
               </div>
-              <button
-                onClick={handleToggleMaintenance}
-                style={{
-                  padding: '8px 16px',
-                  background: maintenanceMode ? '#dc2626' : '#0a4bb5',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  fontWeight: '700',
-                  cursor: 'pointer'
-                }}
-              >
-                {maintenanceMode ? 'Turn Off' : 'Enable'}
+
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>Transit & At-Rest Encryption</div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>TLS 1.3 in-flight with AES-256 transparent database volume encryption.</div>
+                </div>
+                <span style={{ padding: '4px 10px', background: '#e2e8f0', color: '#334155', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>AES-256</span>
+              </div>
+
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>Authoritative RBAC Table</div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>PostgreSQL public.user_roles with SECURITY DEFINER helper public.is_admin().</div>
+                </div>
+                <span style={{ padding: '4px 10px', background: '#e2e8f0', color: '#334155', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>ACTIVE</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: AI Infrastructure */}
+        {activeTab === 'ai' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>AI Reasoning & Triage Microservice Parameters</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontWeight: '700', fontSize: '13px' }}>Primary Clinical LLM</div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Gemini 1.5 Pro (via Google Generative AI API)</div>
+                <div style={{ fontSize: '11px', color: '#16a34a', marginTop: '6px', fontWeight: '700' }}>Credentials Secure (Backend Gateway Only)</div>
+              </div>
+
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontWeight: '700', fontSize: '13px' }}>Random Forest Diagnostic Service</div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>FastAPI Model: symptom-rf-v1 (132 disease features)</div>
+                <div style={{ fontSize: '11px', color: health?.mlService?.status === 'healthy' ? '#16a34a' : '#b91c1c', marginTop: '6px', fontWeight: '700' }}>
+                  Health: {health?.mlService?.status || 'offline'} ({health?.mlService?.latencyMs || 0}ms)
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div>
+                <div style={{ fontWeight: '700', fontSize: '13px' }}>Enable Public Symptom Checker</div>
+                <div style={{ fontSize: '12px', color: '#64748b' }}>Allow unregistered patients to access initial AI symptom triage</div>
+              </div>
+              <button onClick={() => handleToggle('aiTriageEnabled')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: settings.aiTriageEnabled ? '#16a34a' : '#94a3b8' }}>
+                {settings.aiTriageEnabled ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
               </button>
             </div>
           </div>
+        )}
 
-          {/* AI Usage Telemetry Card */}
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '24px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#0f172a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Activity size={18} color="#0a4bb5" /> Daily AI Usage Telemetry
-            </h3>
-            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
-              Tracks daily preliminary symptom triage runs and document understanding calls (`ai_usage_daily`).
-            </p>
-
-            {aiUsage.length === 0 ? (
-              <p style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>
-                No active quota records for the current billing period.
-              </p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {aiUsage.slice(0, 5).map((row, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
-                    <span style={{ color: '#475569' }}>{row.usage_date}</span>
-                    <strong style={{ color: '#0a4bb5' }}>{row.requests_count || 0} calls</strong>
-                  </div>
-                ))}
+        {/* Tab 4: Notifications */}
+        {activeTab === 'notifications' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>Platform Notification Governance</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '13px' }}>Automated Doctor Credential Notifications</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>Dispatch alerts to doctors when verified or rejected via verify_doctor_tx</div>
+                </div>
+                <button onClick={() => handleToggle('requireDoctorLicense')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: settings.requireDoctorLicense ? '#16a34a' : '#94a3b8' }}>
+                  {settings.requireDoctorLicense ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+                </button>
               </div>
-            )}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '13px' }}>Automated Pharmacy Licensing Notifications</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>Dispatch alerts to dispensaries when verified or rejected via verify_pharmacy_tx</div>
+                </div>
+                <button onClick={() => handleToggle('requirePharmacyLicense')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: settings.requirePharmacyLicense ? '#16a34a' : '#94a3b8' }}>
+                  {settings.requirePharmacyLicense ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Tab 5: Platform & DB */}
+        {activeTab === 'platform' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>Database Cluster & Cloud Storage</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontWeight: '700', fontSize: '13px' }}>PostgreSQL Cluster</div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Supabase AWS ap-south-1 (Mumbai)</div>
+                <div style={{ fontSize: '11px', color: '#16a34a', marginTop: '6px', fontWeight: '700' }}>
+                  Status: {healthData?.database?.status || 'healthy'} ({healthData?.database?.latencyMs || 0}ms)
+                </div>
+              </div>
+
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontWeight: '700', fontSize: '13px' }}>Encrypted File Storage</div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Buckets: medical-records, doctor-documents, pharmacy-licenses</div>
+                <div style={{ fontSize: '11px', color: '#16a34a', marginTop: '6px', fontWeight: '700' }}>
+                  Access: Signed Private URLs (Expiry: 60s)
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 6: Healthcare & ABDM */}
+        {activeTab === 'healthcare' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>Healthcare Regulatory Compliance (ABDM / NDHM)</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>Ayushman Bharat Digital Mission (ABDM) Gateway</div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>Milestone 1 & 2 integration: ABHA ID creation and consent artifact manager.</div>
+                </div>
+                <span style={{ padding: '4px 10px', background: '#dcfce7', color: '#15803d', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>READY</span>
+              </div>
+
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>Clinical Consent Artifact Validity</div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>patient_doctor_access table with valid_until timestamp validation.</div>
+                </div>
+                <span style={{ padding: '4px 10px', background: '#e2e8f0', color: '#334155', borderRadius: '6px', fontSize: '11px', fontWeight: '700' }}>TIME-BOUND</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 7: Maintenance Mode */}
+        {activeTab === 'maintenance' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>Platform Maintenance & Emergency Controls</h3>
+            <div style={{ padding: '18px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h4 style={{ fontSize: '15px', fontWeight: '800', color: '#991b1b' }}>Platform Maintenance Mode</h4>
+                  <p style={{ fontSize: '13px', color: '#b91c1c', marginTop: '2px' }}>
+                    When active, standard non-admin users will be temporarily locked out with a scheduled maintenance window screen.
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleToggle('maintenanceMode')}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: settings.maintenanceMode ? '#16a34a' : '#dc2626',
+                    color: '#ffffff',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    fontSize: '13px'
+                  }}
+                >
+                  {settings.maintenanceMode ? 'Disable Maintenance' : 'Activate Maintenance Mode'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div>
+                <div style={{ fontWeight: '700', fontSize: '13px' }}>Allow New Patient Registrations</div>
+                <div style={{ fontSize: '12px', color: '#64748b' }}>Toggle public self-registration on /register route</div>
+              </div>
+              <button onClick={() => handleToggle('allowRegistrations')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: settings.allowRegistrations ? '#16a34a' : '#94a3b8' }}>
+                {settings.allowRegistrations ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -58,23 +58,26 @@ export default function Register() {
     setSubmitting(true);
 
     try {
-      const isPending = role === 'doctor' || role === 'pharmacy';
+      const canonicalRole = role === 'pharmacy' ? 'pharmacist' : role;
       const metadata = {
         name: formData.name,
         full_name: formData.name,
-        role,
+        role: canonicalRole,
         mobile: formData.mobile,
-        approval_status: isPending ? 'pending' : 'approved',
+        phone: formData.mobile,
+        approval_status: 'approved',
+        verification_status: 'approved',
         ...(role === 'patient' ? {
           age: parseInt(formData.age) || 30,
           gender: formData.gender,
           abha_id: formData.abhaId
         } : {}),
         ...(role === 'doctor' ? {
+          specialization: formData.specialist,
           specialist: formData.specialist,
           license_number: formData.licenseNumber,
           experience_years: parseInt(formData.experienceYears) || 0,
-          clinic_id: formData.clinicName
+          clinic_name: formData.clinicName
         } : {}),
         ...(role === 'pharmacy' ? {
           pharmacy_name: formData.pharmacyName,
@@ -88,12 +91,12 @@ export default function Register() {
       setSuccess(true);
 
       setTimeout(() => {
-        if (isPending) {
-          navigate('/pending-approval');
+        if (canonicalRole === 'doctor' || canonicalRole === 'pharmacist') {
+          navigate('/pending-approval', { replace: true });
         } else {
-          navigate('/dashboard');
+          navigate('/patient/dashboard', { replace: true });
         }
-      }, 1500);
+      }, 1000);
     } catch (err) {
       setError(err.message || 'Registration failed.');
     } finally {
@@ -152,7 +155,7 @@ export default function Register() {
             <ShieldAlert size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
             <div className="text-xs text-blue-900">
               <strong className="font-semibold block">Mandatory Admin Approval Gate:</strong>
-              As an accredited {role === 'doctor' ? 'Practitioner' : 'Pharmacy'}, your registration requires verification by our Super Admin compliance team before your public profile and clinical services become active.
+              As an accredited {role === 'doctor' ? 'Practitioner' : 'Pharmacy'}, your registration requires verification by our Admin compliance team before your public profile and clinical services become active.
             </div>
           </div>
         )}

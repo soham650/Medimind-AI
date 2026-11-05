@@ -29,6 +29,55 @@ class SymptomPreprocessor:
             
         # Common user-friendly synonyms and clean mappings
         custom_synonyms = {
+            # UI Quick Badges and labels
+            "headache / forehead pain": "headache",
+            "headache_forehead_pain": "headache",
+            "forehead pain": "headache",
+            "forehead_pain": "headache",
+            "head ache": "headache",
+            "fever & warmth": "high_fever",
+            "fever_warmth": "high_fever",
+            "warmth": "high_fever",
+            "high temperature": "high_fever",
+            "high_fever": "high_fever",
+            "mild_fever": "mild_fever",
+            "mild fever": "mild_fever",
+            "fever": "high_fever",
+            "cough & sneezing": "cough",
+            "cough_sneezing": "cough",
+            "coughing": "cough",
+            "sneezing": "continuous_sneezing",
+            "cold": "continuous_sneezing",
+            "common cold": "continuous_sneezing",
+            "upset stomach / nausea": "stomach_pain",
+            "upset_stomach_nausea": "stomach_pain",
+            "upset stomach": "stomach_pain",
+            "upset_stomach": "stomach_pain",
+            "stomachache": "stomach_pain",
+            "stomach ache": "stomach_pain",
+            "stomach pain": "stomach_pain",
+            "bellyache": "belly_pain",
+            "belly ache": "belly_pain",
+            "belly pain": "belly_pain",
+            "tiredness & low energy": "fatigue",
+            "tiredness_low_energy": "fatigue",
+            "tiredness": "fatigue",
+            "low energy": "fatigue",
+            "low_energy": "fatigue",
+            "scratchy throat": "throat_irritation",
+            "scratchy_throat": "throat_irritation",
+            "sore throat": "throat_irritation",
+            "sore_throat": "throat_irritation",
+            "throat pain": "throat_irritation",
+            "throat irritation": "throat_irritation",
+            "light sensitivity": "blurred_and_distorted_vision",
+            "light_sensitivity": "blurred_and_distorted_vision",
+            "sensitive to light": "blurred_and_distorted_vision",
+            "ear discomfort": "sinus_pressure",
+            "ear_discomfort": "sinus_pressure",
+            "ear pain": "sinus_pressure",
+            "ear ache": "sinus_pressure",
+            # Additional common terms
             "spotting_urination": "spotting_ urination",
             "spotting urination": "spotting_ urination",
             "foul_smell_of_urine": "foul_smell_of urine",
@@ -37,18 +86,38 @@ class SymptomPreprocessor:
             "dischromic patches": "dischromic _patches",
             "toxic_look": "toxic_look_(typhos)",
             "toxic look": "toxic_look_(typhos)",
-            "fever": "high_fever",
-            "stomachache": "stomach_pain",
-            "bellyache": "belly_pain",
             "shortness_of_breath": "breathlessness",
+            "shortness of breath": "breathlessness",
             "difficulty_breathing": "breathlessness",
+            "difficulty breathing": "breathlessness",
             "rapid_heartbeat": "fast_heart_rate",
+            "rapid heartbeat": "fast_heart_rate",
             "throwing_up": "vomiting",
+            "throwing up": "vomiting",
+            "vomit": "vomiting",
+            "vomits": "vomiting",
             "loose_motion": "diarrhoea",
+            "loose motion": "diarrhoea",
+            "loose motions": "diarrhoea",
             "diarrhea": "diarrhoea",
             "dizzy": "dizziness",
             "tired": "fatigue",
-            "exhaustion": "fatigue"
+            "exhaustion": "fatigue",
+            "not_feeling_well": "malaise",
+            "not feeling well": "malaise",
+            "feeling_unwell": "malaise",
+            "unwell": "malaise",
+            "body_ache": "muscle_pain",
+            "body ache": "muscle_pain",
+            "body pain": "muscle_pain",
+            "joint pain": "joint_pain",
+            "joint ache": "joint_pain",
+            "chest pain": "chest_pain",
+            "runny nose": "runny_nose",
+            "sinus": "sinus_pressure",
+            "gas": "passage_of_gases",
+            "bloating": "distention_of_abdomen",
+            "weakness": "muscle_weakness"
         }
         for syn, target in custom_synonyms.items():
             if target in self.symptom_to_idx:
@@ -83,20 +152,52 @@ class SymptomPreprocessor:
             
             raw_clean = item.strip()
             norm_key = self.normalize_symptom_key(raw_clean)
+            item_matched = False
             
             # 1. Exact match in symptoms list
             if raw_clean in self.symptom_to_idx:
                 idx = self.symptom_to_idx[raw_clean]
                 vector[0, idx] = 1
-                matched.append(raw_clean)
+                if raw_clean not in matched:
+                    matched.append(raw_clean)
+                item_matched = True
             # 2. Match via alias map
             elif norm_key in self.alias_map:
                 canonical = self.alias_map[norm_key]
                 idx = self.symptom_to_idx[canonical]
                 vector[0, idx] = 1
-                matched.append(canonical)
+                if canonical not in matched:
+                    matched.append(canonical)
+                item_matched = True
             else:
-                unmatched.append(raw_clean)
+                # 3. Substring & sub-token scanning for compound/badge inputs
+                # Check if known alias or canonical symptom is contained within norm_key
+                sub_matched = False
+                for alias_k, canonical in self.alias_map.items():
+                    if len(alias_k) >= 4 and (alias_k in norm_key or norm_key in alias_k):
+                        idx = self.symptom_to_idx[canonical]
+                        vector[0, idx] = 1
+                        if canonical not in matched:
+                            matched.append(canonical)
+                        sub_matched = True
+                
+                # If still not matched, split into words and check individual words
+                if not sub_matched:
+                    words = re.split(r'[\s_/,;&]+', raw_clean.lower())
+                    for word in words:
+                        word_key = self.normalize_symptom_key(word)
+                        if word_key in self.alias_map:
+                            canonical = self.alias_map[word_key]
+                            idx = self.symptom_to_idx[canonical]
+                            vector[0, idx] = 1
+                            if canonical not in matched:
+                                matched.append(canonical)
+                            sub_matched = True
+                
+                if sub_matched:
+                    item_matched = True
+                else:
+                    unmatched.append(raw_clean)
 
         # Handle fluid_overload duplicate column index if present
         if "fluid_overload.1" in self.symptom_to_idx:

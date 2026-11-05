@@ -442,7 +442,7 @@ export default function PatientAppointments() {
                 <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px', display: 'flex', gap: '10px', alignItems: 'center' }}>
                   {isUpcoming(appt.status) && (
                     <Link
-                      to={`/doctor/consultation/${appt.id}`}
+                      to={`/consultation/${appt.id}`}
                       style={{
                         flex: 1,
                         display: 'flex',

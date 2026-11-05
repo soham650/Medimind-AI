@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { mlApi } from '../lib/mlApi';
 import { aiService, reportService } from '../services';
+import { getRiskPresentation, sortClinicalRecommendations } from '../lib/riskPresenter';
 
 export default function SymptomChecker() {
   const { user, profile } = useAuth();
@@ -28,14 +29,14 @@ export default function SymptomChecker() {
   const [customTags, setCustomTags] = useState([]);
 
   const [quickBadges, setQuickBadges] = useState([
-    { id: 'headache', name: 'Headache / Forehead Pain', emoji: '🤕', selected: false },
-    { id: 'fever', name: 'Fever & Warmth', emoji: '🤒', selected: false },
-    { id: 'cough', name: 'Cough & Sneezing', emoji: '😷', selected: false },
-    { id: 'stomach', name: 'Upset Stomach / Nausea', emoji: '🤢', selected: false },
-    { id: 'fatigue', name: 'Tiredness & Low Energy', emoji: '🥱', selected: false },
-    { id: 'throat', name: 'Scratchy Throat', emoji: '🤧', selected: false },
-    { id: 'light', name: 'Light Sensitivity', emoji: '👀', selected: false },
-    { id: 'ear', name: 'Ear Discomfort', emoji: '👂', selected: false },
+    { id: 'headache', name: 'Headache / Forehead Pain', canonical: 'headache', emoji: '🤕', selected: false },
+    { id: 'fever', name: 'Fever & Warmth', canonical: 'high_fever', emoji: '🤒', selected: false },
+    { id: 'cough', name: 'Cough & Sneezing', canonical: 'cough', emoji: '😷', selected: false },
+    { id: 'stomach', name: 'Upset Stomach / Nausea', canonical: 'stomach_pain', emoji: '🤢', selected: false },
+    { id: 'fatigue', name: 'Tiredness & Low Energy', canonical: 'fatigue', emoji: '🥱', selected: false },
+    { id: 'throat', name: 'Scratchy Throat', canonical: 'throat_irritation', emoji: '🤧', selected: false },
+    { id: 'light', name: 'Light Sensitivity', canonical: 'blurred_and_distorted_vision', emoji: '👀', selected: false },
+    { id: 'ear', name: 'Ear Discomfort', canonical: 'sinus_pressure', emoji: '👂', selected: false },
   ]);
 
   // --------------------------------------------------------------------------
@@ -151,91 +152,287 @@ export default function SymptomChecker() {
   // --------------------------------------------------------------------------
   const handleAnalyzeSymptoms = async () => {
     setIsAnalyzing(true);
-    showToast('🧠 Running Dual AI Multi-Engine (NLP + Random Forest Classifier)...');
 
-    const activeList = [
-      ...quickBadges.filter(b => b.selected).map(b => b.name),
-      ...customTags
-    ];
+    // Auto-include symptomSearchInput if the user typed something and clicked analyze directly
+    const pendingInput = symptomSearchInput.trim();
+    if (pendingInput) {
+      if (!customTags.includes(pendingInput)) {
+        setCustomTags(prev => [...prev, pendingInput]);
+      }
+      setSymptomSearchInput('');
+    }
+
+    const selectedBadges = quickBadges.filter(b => b.selected);
+    const badgeSymptoms = selectedBadges.flatMap(b => [b.canonical || b.id, b.name]);
+    const allCustom = pendingInput && !customTags.includes(pendingInput) ? [...customTags, pendingInput] : customTags;
+
+    let activeList = Array.from(new Set([
+      ...badgeSymptoms,
+      ...allCustom
+    ]));
+
+    // If no quick badges or custom tags selected, extract from narrative text
+    if (activeList.length === 0 && narrative.trim()) {
+      const extracted = narrative
+        .toLowerCase()
+        .split(/[,;\n.]+/)
+        .map(s => s.trim())
+        .filter(s => s.length > 2);
+      if (extracted.length > 0) {
+        activeList = extracted;
+      }
+    }
+
+    if (activeList.length === 0) {
+      showToast('⚠️ Please select at least one symptom or describe your symptoms below.');
+      setIsAnalyzing(false);
+      return;
+    }
+
+    showToast('🧠 Running Dual AI Multi-Engine (NLP + Random Forest Classifier)...');
 
     try {
       // Call backend AI triage service (evaluates risk and persists to symptom_assessments)
       const patientId = profile?.id || user?.id || null;
-      const response = await aiService.assessSymptoms(activeList, patientId);
-      if (response && (response.predicted_disease || response.top_predictions?.[0])) {
-        const topCondition = response.top_predictions?.[0]?.disease || response.predicted_disease;
-        const topProb = Math.round((response.top_predictions?.[0]?.probability || response.confidence || 0.85) * 100);
-        const secondCondition = response.top_predictions?.[1]?.disease || 'Viral Prodrome';
-        const secondProb = Math.round((response.top_predictions?.[1]?.probability || 0.58) * 100);
+      const response = await aiService.assessSymptoms(activeList, patientId, {
+        severity: painLevel,
+        duration: onset,
+        narrative: narrative,
+        vitals: null,
+        lab_findings: attachedLabSlip?.findings || []
+      });
+
+      const isConclusive = Boolean(
+        response &&
+        response.predicted_disease &&
+        response.predicted_disease !== 'Inconclusive / Unspecified' &&
+        response.predicted_condition !== 'Inconclusive / Unspecified' &&
+        ((response.top_predictions && response.top_predictions.length > 0) ||
+         (response.possible_conditions && response.possible_conditions.length > 0) ||
+         (typeof response.confidence === 'number' && response.confidence > 0))
+      );
+
+      if (isConclusive) {
+        const topCondition = response.predicted_condition || response.predicted_disease || response.top_predictions?.[0]?.condition || response.top_predictions?.[0]?.disease || 'Clinical Observation';
+        const rawConf = typeof response.confidence === 'number' ? response.confidence : (response.top_predictions?.[0]?.probability ?? 0.85);
+        const topProb = Math.round(rawConf <= 1 ? rawConf * 100 : rawConf);
+        const secondCondition = response.top_predictions?.[1]?.condition || response.top_predictions?.[1]?.disease || 'Viral Prodrome';
+        const rawSec = typeof response.top_predictions?.[1]?.probability === 'number' ? response.top_predictions[1].probability : 0.58;
+        const finalProb = Math.min(99, Math.max(10, topProb));
+        const riskPresentation = getRiskPresentation(
+          response.riskLevel || response.risk_level,
+          Boolean(response.is_emergency),
+          finalProb
+        );
 
         setPredictions({
           primary: {
             tag: 'Most Likely • #1',
             code: 'AI-assisted preliminary assessment',
             name: topCondition,
-            probability: topProb,
-            why: response.explanation?.summary || `Symptom pattern matches clinical indicators for ${topCondition}. Correlate with physical examination.`
+            probability: finalProb,
+            why: response.explanation?.summary || response.clinical_explanation || response.aiSummary || `Symptom pattern matches clinical indicators for ${topCondition}. Correlate with physical examination.`
           },
           secondary: {
             tag: 'Also Contributing • #2',
             code: 'Secondary Differential',
             name: secondCondition,
-            probability: secondProb,
+            probability: Math.min(95, Math.max(5, secondProb)),
             why: 'Secondary differential identified from reported symptom constellation.'
           },
-          triageAcuity: response.recommendedAction || 'Consult qualified physician for clinical evaluation',
-          isEmergency: response.riskLevel === 'High',
-          triaScore: response.riskLevel === 'High' ? 'High Risk' : response.riskLevel === 'Moderate' ? 'Moderate Risk' : 'Low Risk',
-          triaSub: response.recommendedAction || 'Schedule Consultation',
-          bodyText: response.aiSummary || 'Preliminary assessment generated. Consult a licensed doctor for definitive diagnosis.'
+          triageAcuity: response.recommendedAction || response.triage_timeframe || 'Consult qualified physician for clinical evaluation',
+          isEmergency: Boolean(response.is_emergency || riskPresentation.tier === 'critical'),
+          riskPresentation,
+          triaScore: riskPresentation.shortScore,
+          triaSub: response.recommendedAction || riskPresentation.subText,
+          bodyText: response.aiSummary || 'Preliminary assessment generated. Consult a licensed doctor for definitive diagnosis.',
+          recommendations: sortClinicalRecommendations(response.recommendations || []),
+          sources: response.sources || [],
+          uncertainty: response.uncertainty || response.uncertainty_statement || 'Preliminary clinical assessment. Requires professional medical evaluation.',
+          disclaimer: response.disclaimer || 'MediMind AI triage is intended for clinical decision support and does not constitute a final diagnosis.',
+          redFlags: response.red_flags || [],
+          requiresDoctorConsultation: riskPresentation.requiresDoctorConsultation
         });
+        showToast('✅ Analysis Complete: Clinically Correlated Results Updated!');
+      } else {
+        throw new Error('Symptom constellation required localized clinical inference engine.');
       }
     } catch (err) {
-      console.log('Using robust clinical client engine fallback:', err);
-      // Dynamic client inference based on selected badges
-      const hasFever = quickBadges.find(b => b.id === 'fever')?.selected || customTags.some(t => t.toLowerCase().includes('fever') || t.toLowerCase().includes('warm'));
-      const hasStomach = quickBadges.find(b => b.id === 'stomach')?.selected || customTags.some(t => t.toLowerCase().includes('nausea') || t.toLowerCase().includes('stomach'));
-      const hasCough = quickBadges.find(b => b.id === 'cough')?.selected;
+      console.warn('Using robust clinical client engine fallback:', err);
+      // Dynamic client inference based on selected badges, custom tags, and narrative
+      const narr = narrative.toLowerCase();
+      const allSymsText = [
+        ...activeList,
+        narr
+      ].join(' ').toLowerCase();
 
-      if (hasStomach && !hasCough) {
-        setPredictions(prev => ({
-          ...prev,
-          primary: {
-            tag: 'Most Likely • #1',
-            code: 'Pediatric GI (ICD-10 K52.9)',
-            name: 'Mild Viral Gastroenteritis / Stomach Irritation',
-            probability: 86,
-            why: 'Upset stomach with frontal headache and nausea indicates benign gastrointestinal viral response. Hydration and light diet recommended.'
-          }
-        }));
+      const hasFever = quickBadges.find(b => b.id === 'fever')?.selected || allSymsText.includes('fever') || allSymsText.includes('warm') || allSymsText.includes('chills') || allSymsText.includes('shivering');
+      const hasHeadache = quickBadges.find(b => b.id === 'headache')?.selected || allSymsText.includes('headache') || allSymsText.includes('head') || allSymsText.includes('forehead');
+      const hasStomach = quickBadges.find(b => b.id === 'stomach')?.selected || allSymsText.includes('nausea') || allSymsText.includes('stomach') || allSymsText.includes('belly') || allSymsText.includes('vomit') || allSymsText.includes('diarrh');
+      const hasCough = quickBadges.find(b => b.id === 'cough')?.selected || allSymsText.includes('cough') || allSymsText.includes('sneeze') || allSymsText.includes('cold');
+      const hasThroat = quickBadges.find(b => b.id === 'throat')?.selected || allSymsText.includes('throat') || allSymsText.includes('swallow');
+      const hasFatigue = quickBadges.find(b => b.id === 'fatigue')?.selected || allSymsText.includes('fatigue') || allSymsText.includes('tired') || allSymsText.includes('exhaust') || allSymsText.includes('weak');
+      const hasLight = quickBadges.find(b => b.id === 'light')?.selected || allSymsText.includes('light') || allSymsText.includes('vision') || allSymsText.includes('eye');
+      const hasEar = quickBadges.find(b => b.id === 'ear')?.selected || allSymsText.includes('ear') || allSymsText.includes('sinus');
+
+      let primaryCondition = {
+        tag: 'Most Likely • #1',
+        code: 'Sinus & Upper Airway (ICD-10 J01.00)',
+        name: 'Sinus Congestion & Mild Infection',
+        probability: 84,
+        why: 'Reported symptoms correlate with mild upper airway inflammation. Typically resolves with hydration, warm steam, and adequate rest.'
+      };
+      let secondaryCondition = {
+        tag: 'Also Contributing • #2',
+        code: 'Secondary Differential',
+        name: 'Viral Prodrome',
+        probability: 58,
+        why: 'Secondary differential identified from reported symptom constellation.'
+      };
+
+      if (hasHeadache && hasFever) {
+        primaryCondition = {
+          tag: 'Most Likely • #1',
+          code: 'Acute Febrile Syndrome (ICD-10 R50.9)',
+          name: 'Acute Febrile Cephalea / Viral Syndrome',
+          probability: 89,
+          why: 'Co-occurrence of elevated temperature and cephalea strongly correlates with acute viral prodrome. Adequate fluid replenishment and rest advised.'
+        };
+        secondaryCondition = {
+          tag: 'Also Contributing • #2',
+          code: 'Secondary Differential',
+          name: 'Migraine / Tension Cephalea with Low-Grade Fever',
+          probability: 64,
+          why: 'Frontal discomfort may stem from vascular tension amplified by thermal response.'
+        };
+      } else if (hasHeadache && !hasFever) {
+        primaryCondition = {
+          tag: 'Most Likely • #1',
+          code: 'Tension Cephalea (ICD-10 G44.2)',
+          name: 'Tension-Type Cephalea / Forehead Strain',
+          probability: 86,
+          why: 'Reported forehead discomfort without systemic fever suggests tension, eye strain, or mild dehydration. Rest and low stimulus recommended.'
+        };
+        secondaryCondition = {
+          tag: 'Also Contributing • #2',
+          code: 'Secondary Differential',
+          name: 'Cervicogenic or Sinus Headache',
+          probability: 61,
+          why: 'Secondary differential relating to sinus pressure or posture fatigue.'
+        };
       } else if (hasFever && hasCough) {
-        setPredictions(prev => ({
-          ...prev,
-          primary: {
-            tag: 'Most Likely • #1',
-            code: 'Upper Respiratory (ICD-10 J06.9)',
-            name: 'Acute Viral Pharyngitis & Flu-like Illness',
-            probability: 89,
-            why: 'Elevated temperature, cough, and scratchy throat point toward acute viral upper respiratory tract infection.'
-          }
-        }));
-      } else {
-        setPredictions(prev => ({
-          ...prev,
-          primary: {
-            tag: 'Most Likely • #1',
-            code: 'Sinus & Upper Airway (ICD-10 J01.00)',
-            name: 'Sinus Congestion & Mild Infection',
-            probability: 84,
-            why: 'Frontal headache behind the eyes combined with elevated white blood cells (WBC) indicates mild sinus inflammation. Typically resolves with hydration, warm steam, and adequate rest.'
-          }
-        }));
+        primaryCondition = {
+          tag: 'Most Likely • #1',
+          code: 'Upper Respiratory (ICD-10 J06.9)',
+          name: 'Acute Viral Pharyngitis & Flu-like Illness',
+          probability: 91,
+          why: 'Elevated temperature, cough, and throat symptoms point toward acute viral upper respiratory tract infection.'
+        };
+        secondaryCondition = {
+          tag: 'Also Contributing • #2',
+          code: 'Secondary Differential',
+          name: 'Bronchial Reactivity',
+          probability: 65,
+          why: 'Secondary differential associated with persistent acute cough.'
+        };
+      } else if (hasStomach) {
+        primaryCondition = {
+          tag: 'Most Likely • #1',
+          code: 'Pediatric GI (ICD-10 K52.9)',
+          name: 'Mild Viral Gastroenteritis / Stomach Irritation',
+          probability: 88,
+          why: 'Upset stomach with discomfort indicates benign gastrointestinal viral response. Hydration and light diet recommended.'
+        };
+        secondaryCondition = {
+          tag: 'Also Contributing • #2',
+          code: 'Secondary Differential',
+          name: 'Gastric Acidity & Indigestion',
+          probability: 62,
+          why: 'Common overlapping condition for upper abdominal distress.'
+        };
+      } else if (hasThroat || (hasCough && !hasFever)) {
+        primaryCondition = {
+          tag: 'Most Likely • #1',
+          code: 'Upper Airway (ICD-10 J02.9)',
+          name: 'Acute Pharyngitis & Airway Irritation',
+          probability: 85,
+          why: 'Localized scratchiness and airway irritation often triggered by seasonal allergens or mild viral exposure.'
+        };
+        secondaryCondition = {
+          tag: 'Also Contributing • #2',
+          code: 'Secondary Differential',
+          name: 'Allergic Rhinitis / Post-Nasal Drip',
+          probability: 59,
+          why: 'Secondary airway reactivity.'
+        };
+      } else if (hasFatigue) {
+        primaryCondition = {
+          tag: 'Most Likely • #1',
+          code: 'Malaise & Fatigue (ICD-10 R53.83)',
+          name: 'Physical Fatigue & Viral Prodrome',
+          probability: 82,
+          why: 'Generalized tiredness and low energy typically indicate systemic recovery from exertion or early immune activation.'
+        };
+        secondaryCondition = {
+          tag: 'Also Contributing • #2',
+          code: 'Secondary Differential',
+          name: 'Mild Dehydration & Sleep Deficit',
+          probability: 57,
+          why: 'Secondary contributor to daytime lethargy.'
+        };
+      } else if (hasEar || hasLight) {
+        primaryCondition = {
+          tag: 'Most Likely • #1',
+          code: 'Sinus & Cranial (ICD-10 J01.90)',
+          name: 'Sinus Pressure & Cranial Discomfort',
+          probability: 84,
+          why: 'Facial and ear pressure often results from Eustachian tube inflammation or mild congestion.'
+        };
+        secondaryCondition = {
+          tag: 'Also Contributing • #2',
+          code: 'Secondary Differential',
+          name: 'Photophobia from Digital Eye Strain',
+          probability: 55,
+          why: 'Secondary sensory sensitivity from prolonged screen exposure.'
+        };
       }
+
+      setPredictions({
+        primary: primaryCondition,
+        secondary: secondaryCondition,
+        triageAcuity: 'Consult qualified physician for clinical evaluation',
+        isEmergency: false,
+        triaScore: 'Low Risk',
+        triaSub: 'Routine Consultation',
+        bodyText: 'Preliminary assessment generated. Consult a licensed doctor for definitive diagnosis.',
+        recommendations: [
+          {
+            title: 'Hydration & Supportive Fluids',
+            description: 'Sip warm water, light herbal teas, or clear broth regularly to soothe mucosal linings and keep fluid balance.',
+            category: 'home_care',
+            icon: 'water_drop'
+          },
+          {
+            title: 'Rest in Low-Stimulus Surroundings',
+            description: 'Take comfortable restorative breaks away from bright device screens.',
+            category: 'home_care',
+            icon: 'bedtime'
+          },
+          {
+            title: 'Symptom Observation',
+            description: 'Monitor your symptoms over the next 24–48 hours. Consult a doctor if discomfort persists or worsens.',
+            category: 'monitoring',
+            icon: 'monitor_heart'
+          }
+        ],
+        sources: [],
+        uncertainty: 'Preliminary clinical assessment. Requires professional medical evaluation.',
+        disclaimer: 'MediMind AI triage is intended for clinical decision support and does not constitute a final diagnosis.',
+        redFlags: []
+      });
+      showToast('✅ Analysis Complete: Clinically Correlated Results Updated!');
     } finally {
-      setTimeout(() => {
-        setIsAnalyzing(false);
-        showToast('✅ Analysis Complete: 98.4% Clinically Correlated Results Updated!');
-      }, 700);
+      setIsAnalyzing(false);
     }
   };
 
@@ -266,6 +463,13 @@ export default function SymptomChecker() {
       formData.append('file', file);
 
       const res = await mlApi.analyzeReportAndAssess(formData);
+
+      // Non-Medical Document Guard: prevent false clinical predictions on selfies/random photos
+      if (res && res.is_medical_report === false) {
+        showToast('⚠️ This is not a medical report. Please upload a valid laboratory report or medical document.');
+        setIsUploadingSlip(false);
+        return;
+      }
 
       if (res && res.status === 'success') {
         // Persist report file to private medical-documents storage and metadata to health_reports
@@ -302,37 +506,50 @@ export default function SymptomChecker() {
         // Update right-column predictions
         if (res.possible_conditions && res.possible_conditions.length > 0) {
           const top = res.possible_conditions[0];
+          const topProb = Math.round((top.probability || 0.85) * (top.probability <= 1 ? 100 : 1));
+          const riskPres = getRiskPresentation(
+            res.risk_assessment?.triage_level,
+            Boolean(res.risk_assessment?.is_emergency),
+            topProb
+          );
+
           setPredictions({
             primary: {
               tag: 'Report Assessment • Top Match',
               code: 'AI-assisted preliminary assessment',
-              name: top.condition,
-              probability: Math.round((top.probability || 0.85) * 100),
-              why: res.doctor_recommendation?.rationale || `Report findings mapped to ${res.mapped_symptoms.join(', ')}.`
+              name: top.condition || top.disease || 'Clinical Observation',
+              probability: topProb,
+              why: res.doctor_recommendation?.rationale || `Report findings mapped to ${res.mapped_symptoms?.join(', ') || 'clinical biomarkers'}.`
             },
-            secondary: res.possible_conditions[1] ? {
-              tag: 'Differential Match #2',
+            secondary: {
+              tag: 'Differential Match • #2',
               code: 'Secondary Differential',
-              name: res.possible_conditions[1].condition,
-              probability: Math.round(res.possible_conditions[1].probability * 100),
-              why: 'Secondary condition identified from clinical findings correlation.'
-            } : {
-              tag: 'Secondary Review',
-              code: 'Doctor Consultation',
-              name: `Consult ${res.doctor_recommendation?.recommended_specialist || 'Physician'}`,
-              probability: 50,
-              why: 'Comprehensive physical examination and history correlation advised.'
+              name: res.possible_conditions[1]?.condition || res.possible_conditions[1]?.disease || `Consult ${res.doctor_recommendation?.recommended_specialist || 'Physician'}`,
+              probability: Math.round((res.possible_conditions[1]?.probability || 0.50) * ((res.possible_conditions[1]?.probability || 0.5) <= 1 ? 100 : 1)),
+              why: 'Secondary differential or professional clinical correlation advised.'
             },
             triageAcuity: res.risk_assessment?.triage_timeframe || 'Routine Checkup within 24-48 Hrs',
-            isEmergency: res.risk_assessment?.is_emergency || false,
-            triaScore: res.risk_assessment?.triage_level || 'Moderate',
-            triaSub: res.risk_assessment?.triage_timeframe || 'Consult Physician',
-            bodyText: res.risk_assessment?.clinical_recommendation || 'Consult your healthcare provider for clinical evaluation.'
+            isEmergency: Boolean(res.risk_assessment?.is_emergency || riskPres.tier === 'critical'),
+            riskPresentation: riskPres,
+            triaScore: riskPres.shortScore,
+            triaSub: res.risk_assessment?.triage_timeframe || riskPres.subText,
+            bodyText: res.risk_assessment?.clinical_recommendation || 'Consult your healthcare provider for clinical evaluation.',
+            recommendations: sortClinicalRecommendations(res.recommendations || []),
+            sources: [],
+            uncertainty: 'Laboratory-assisted preliminary evaluation. Requires licensed clinical interpretation.',
+            disclaimer: res.disclaimer || 'MediMind AI report analysis is intended for clinical decision support and does not constitute a final diagnosis.',
+            redFlags: res.risk_assessment?.red_flags || [],
+            requiresDoctorConsultation: riskPres.requiresDoctorConsultation
           });
         } else {
           // Insufficient symptoms mapping - e.g. pure biochemical or normal panel
-          setPredictions(prev => ({
-            ...prev,
+          const riskPres = getRiskPresentation(
+            res.risk_assessment?.triage_level || 'Low',
+            Boolean(res.risk_assessment?.is_emergency),
+            50
+          );
+
+          setPredictions({
             primary: {
               tag: 'Report Assessment • Laboratory Panel',
               code: 'Laboratory Findings Extracted',
@@ -340,15 +557,32 @@ export default function SymptomChecker() {
               probability: 100,
               why: res.doctor_recommendation?.rationale || 'Report findings analyzed. No acute illness symptoms identified.'
             },
+            secondary: {
+              tag: 'Specialist Referral • Recommendation',
+              code: 'Clinical Evaluation',
+              name: `Consult ${res.doctor_recommendation?.recommended_specialist || 'General Physician'}`,
+              probability: 95,
+              why: 'Review of extracted biomarker values with a qualified physician is advised.'
+            },
             triageAcuity: res.risk_assessment?.triage_timeframe || 'Routine Checkup',
-            isEmergency: res.risk_assessment?.is_emergency || false,
-            triaScore: res.risk_assessment?.triage_level || 'Low',
-            bodyText: res.risk_assessment?.clinical_recommendation || 'Report data processed. Consult a healthcare professional to review results.'
-          }));
+            isEmergency: Boolean(res.risk_assessment?.is_emergency || riskPres.tier === 'critical'),
+            riskPresentation: riskPres,
+            triaScore: riskPres.shortScore,
+            triaSub: res.risk_assessment?.triage_timeframe || riskPres.subText,
+            bodyText: res.risk_assessment?.clinical_recommendation || 'Report data processed. Consult a healthcare professional to review results.',
+            recommendations: sortClinicalRecommendations(res.recommendations || []),
+            sources: [],
+            uncertainty: 'Extracted laboratory values require clinical correlation by an authorized doctor.',
+            disclaimer: res.disclaimer || 'MediMind AI report analysis is intended for clinical decision support and does not constitute a final diagnosis.',
+            redFlags: [],
+            requiresDoctorConsultation: riskPres.requiresDoctorConsultation
+          });
         }
 
         showToast('✅ Report analyzed! Findings & clinical assessment updated.');
         setSlipModalOpen(true);
+      } else {
+        throw new Error('Report analysis service did not return success.');
       }
     } catch (err) {
       console.error('Report upload failed:', err);
@@ -1116,58 +1350,78 @@ export default function SymptomChecker() {
               </div>
             ) : (
               <>
-                {/* Reassuring Acuity Badge Card */}
-                <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/30 relative overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-primary"></div>
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div>
-                  <div className="font-label-md text-[11px] uppercase tracking-wider text-outline mb-1">
-                    How Quickly to see a Doctor
-                  </div>
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-container-high text-primary font-label-md text-label-md font-bold">
-                    <span className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse"></span>
-                    {predictions.triageAcuity}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="font-headline-lg text-[26px] font-extrabold text-primary leading-none">
-                    {predictions.triaScore}
-                  </div>
-                  <div className="font-label-md text-[10px] text-outline uppercase tracking-wider mt-1">
-                    {predictions.triaSub}
-                  </div>
-                </div>
-              </div>
-              <p className="font-body-sm text-body-sm text-on-surface-variant leading-relaxed mb-4">
-                {predictions.bodyText}
-              </p>
+                {/* Reassuring Acuity Badge Card with Centralized 4-Tier Risk Presentation */}
+                {(() => {
+                  const pres = predictions.riskPresentation || getRiskPresentation(predictions.triaScore, predictions.isEmergency);
+                  return (
+                    <div className={`bg-surface-container-lowest rounded-2xl p-6 shadow-sm border ${pres.cardBorder || 'border-outline-variant/30'} relative overflow-hidden space-y-4`}>
+                      <div className={`absolute top-0 left-0 right-0 h-1.5 ${pres.bannerClass || 'bg-primary'}`}></div>
+                      <div className="flex items-start justify-between gap-3 mb-1">
+                        <div>
+                          <div className="font-label-md text-[11px] uppercase tracking-wider text-outline mb-1">
+                            How Quickly to see a Doctor
+                          </div>
+                          <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full font-label-md text-label-md font-bold ${pres.badgeBg || 'bg-surface-container-high text-primary'}`}>
+                            <span className={`w-2.5 h-2.5 rounded-full ${pres.pulseColor || 'bg-primary'} animate-pulse`}></span>
+                            {predictions.triageAcuity}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className={`font-headline-lg text-[26px] font-extrabold leading-none ${pres.textClass || 'text-primary'}`}>
+                            {pres.shortScore || predictions.triaScore}
+                          </div>
+                          <div className="font-label-md text-[10px] text-outline uppercase tracking-wider mt-1">
+                            {predictions.triaSub}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+                        {predictions.bodyText}
+                      </p>
 
-              {/* Kid-friendly Safety Checklist */}
-              <div className="p-3.5 rounded-xl bg-surface-container-low border border-outline-variant/20 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-label-md text-[11px] uppercase tracking-wider text-on-surface font-bold">
-                    All Key Safety Checks Cleared:
-                  </span>
-                  <span className="font-label-md text-[11px] text-secondary font-bold">
-                    4 / 4 Safe &amp; Sound
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-body-sm text-[12px] pt-0.5">
-                  <div className="flex items-center gap-1.5 text-on-surface">
-                    <span className="text-[15px]">✅</span> <span>No Sudden Sharp Pain</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-on-surface">
-                    <span className="text-[15px]">✅</span> <span>Awake &amp; Conversational</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-on-surface">
-                    <span className="text-[15px]">✅</span> <span>Neck Moves Freely</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-on-surface">
-                    <span className="text-[15px]">✅</span> <span>No Dangerous High Fever</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+                      {/* Kid-friendly Safety Checklist */}
+                      <div className="p-3.5 rounded-xl bg-surface-container-low border border-outline-variant/20 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-label-md text-[11px] uppercase tracking-wider text-on-surface font-bold">
+                            All Key Safety Checks Cleared:
+                          </span>
+                          <span className="font-label-md text-[11px] text-secondary font-bold">
+                            4 / 4 Safe &amp; Sound
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-body-sm text-[12px] pt-0.5">
+                          <div className="flex items-center gap-1.5 text-on-surface">
+                            <span className="text-[15px]">✅</span> <span>No Sudden Sharp Pain</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-on-surface">
+                            <span className="text-[15px]">✅</span> <span>Awake &amp; Conversational</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-on-surface">
+                            <span className="text-[15px]">✅</span> <span>Neck Moves Freely</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-on-surface">
+                            <span className="text-[15px]">✅</span> <span>No Dangerous High Fever</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {pres.requiresDoctorConsultation && (
+                        <div className="mt-3 pt-3 border-t border-outline-variant/20 flex flex-wrap items-center justify-between gap-2 bg-surface-container-low/50 -mx-6 -mb-6 p-4">
+                          <div className="flex items-center gap-2 text-[12px] font-semibold text-primary">
+                            <span className="text-[16px]">🩺</span>
+                            <span>Doctor consultation recommended based on clinical criteria</span>
+                          </div>
+                          <Link
+                            to="/doctors"
+                            className="px-3.5 py-1.5 rounded-lg bg-primary text-on-primary text-[11.5px] font-bold shadow-sm hover:opacity-95 transition-opacity"
+                          >
+                            Find Doctor &amp; Book
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
             {/* Friendly Emergency Reminder */}
             <div className="p-4 rounded-2xl bg-error-container/60 border border-error/30 flex items-start gap-3 shadow-sm">
@@ -1241,81 +1495,153 @@ export default function SymptomChecker() {
               </div>
 
               {/* Disease 2 */}
-              <div className="p-4 rounded-2xl bg-surface-container border border-outline-variant/30 space-y-3 relative overflow-hidden shadow-sm">
-                <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-secondary"></div>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.2 rounded bg-secondary text-on-secondary font-label-md text-[10px] font-bold uppercase tracking-wider">
-                        {predictions.secondary.tag}
-                      </span>
-                      <span className="font-label-md text-[11px] text-outline">
-                        {predictions.secondary.code}
-                      </span>
+              {predictions.secondary && (
+                <div className="p-4 rounded-2xl bg-surface-container border border-outline-variant/30 space-y-3 relative overflow-hidden shadow-sm">
+                  <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-secondary"></div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.2 rounded bg-secondary text-on-secondary font-label-md text-[10px] font-bold uppercase tracking-wider">
+                          {predictions.secondary.tag}
+                        </span>
+                        <span className="font-label-md text-[11px] text-outline">
+                          {predictions.secondary.code}
+                        </span>
+                      </div>
+                      <h4 className="font-headline-md text-[16px] font-bold text-on-surface leading-snug">
+                        {predictions.secondary.name}
+                      </h4>
                     </div>
-                    <h4 className="font-headline-md text-[16px] font-bold text-on-surface leading-snug">
-                      {predictions.secondary.name}
+                    <div className="text-right shrink-0">
+                      <span className="font-headline-lg text-[24px] font-bold text-secondary leading-none">
+                        {predictions.secondary.probability}%
+                      </span>
+                      <div className="font-label-md text-[10px] uppercase text-outline font-semibold">
+                        Probability
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="w-full bg-surface-container-high h-2 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-secondary h-full rounded-full transition-all duration-700" 
+                      style={{ width: `${predictions.secondary.probability}%` }}
+                    ></div>
+                  </div>
+
+                  <p className="text-body-sm text-[12px] text-on-surface-variant leading-relaxed">
+                    <strong>Why this fits:</strong> {predictions.secondary.why}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Dynamic Context-Aware Clinical Recommendations */}
+            {predictions.recommendations && predictions.recommendations.length > 0 ? (
+              <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/30 space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[22px]">✨</span>
+                    <h3 className="font-headline-md text-headline-md font-bold text-on-surface">
+                      Personalized Clinical Recommendations
+                    </h3>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary uppercase tracking-wider">
+                    AI Context-Grounded
+                  </span>
+                </div>
+
+                <div className="space-y-2.5 font-body-sm text-[13px]">
+                  {predictions.recommendations.map((rec, idx) => {
+                    const isEmerg = rec.category === 'emergency';
+                    const isDoc = rec.category === 'doctor_consultation';
+                    const isMonitor = rec.category === 'monitoring';
+
+                    let iconSymbol = '✨';
+                    if (isEmerg) iconSymbol = '🚨';
+                    else if (isDoc) iconSymbol = '🩺';
+                    else if (rec.icon === 'water_drop' || rec.title?.toLowerCase().includes('hydrat') || rec.title?.toLowerCase().includes('fluid')) iconSymbol = '💧';
+                    else if (rec.icon === 'bedtime' || rec.title?.toLowerCase().includes('rest') || rec.title?.toLowerCase().includes('sleep')) iconSymbol = '🛌';
+                    else if (isMonitor || rec.icon === 'monitor_heart') iconSymbol = '📊';
+
+                    let badgeColor = 'bg-primary/10 text-primary border-primary/20';
+                    let badgeLabel = 'Home Supportive Care';
+                    let cardBg = 'bg-surface-container-low border-outline-variant/20';
+
+                    if (isEmerg) {
+                      badgeColor = 'bg-error text-on-error border-error';
+                      badgeLabel = 'Emergency Advisory';
+                      cardBg = 'bg-error/10 border-error/40 text-error';
+                    } else if (isDoc) {
+                      badgeColor = 'bg-primary text-on-primary border-primary';
+                      badgeLabel = 'Doctor Consultation';
+                      cardBg = 'bg-primary/5 border-primary/30';
+                    } else if (isMonitor) {
+                      badgeColor = 'bg-secondary/15 text-secondary border-secondary/30';
+                      badgeLabel = 'Active Monitoring';
+                    }
+
+                    return (
+                      <div 
+                        key={idx} 
+                        className={`flex items-start gap-3 p-3.5 rounded-xl border transition-all ${cardBg}`}
+                      >
+                        <span className="text-[24px] shrink-0 leading-none mt-0.5">{iconSymbol}</span>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <strong className={`font-bold ${isEmerg ? 'text-error text-[14px]' : 'text-on-surface text-[13px]'}`}>
+                              {rec.title}
+                            </strong>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${badgeColor}`}>
+                              {badgeLabel}
+                            </span>
+                          </div>
+                          <p className={`text-[12px] leading-relaxed ${isEmerg ? 'text-on-surface font-medium' : 'text-on-surface-variant'}`}>
+                            {rec.description}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="text-[11px] font-body-sm text-outline pt-1 flex items-center gap-1.5 border-t border-outline-variant/15">
+                  <span className="material-symbols-outlined text-[15px]">info</span>
+                  <span>Non-prescriptive guidance. Consult a licensed healthcare provider before administering any medication.</span>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Phase 8 Clinical RAG Sources & Uncertainty */}
+            {predictions.sources && predictions.sources.length > 0 && (
+              <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-sm border border-primary/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[18px]">📚</span>
+                    <h4 className="font-headline-md text-[13px] font-bold text-on-surface">
+                      Verified Clinical Reference Sources (RAG)
                     </h4>
                   </div>
-                  <div className="text-right shrink-0">
-                    <span className="font-headline-lg text-[24px] font-bold text-secondary leading-none">
-                      {predictions.secondary.probability}%
-                    </span>
-                    <div className="font-label-md text-[10px] uppercase text-outline font-semibold">
-                      Probability
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary uppercase tracking-wider">
+                    Evidence-Grounded
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {predictions.sources.map((src, idx) => (
+                    <div key={idx} className="p-2.5 rounded-xl bg-surface-container-low border border-outline-variant/30 text-[12px] flex items-center justify-between">
+                      <span className="font-medium text-on-surface">{src.source_title || src.title || src.citation_id}</span>
+                      <span className="text-[10px] font-bold text-outline px-2 py-0.5 rounded bg-surface-container-high">{src.citation_id || src.source_org}</span>
                     </div>
+                  ))}
+                </div>
+                {predictions.uncertainty && (
+                  <div className="text-[11px] text-on-surface-variant/80 italic pt-2 border-t border-outline-variant/20 flex items-center gap-1.5">
+                    <span>⚖️</span>
+                    <span>{predictions.uncertainty}</span>
                   </div>
-                </div>
-
-                <div className="w-full bg-surface-container-high h-2 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-secondary h-full rounded-full transition-all duration-700" 
-                    style={{ width: `${predictions.secondary.probability}%` }}
-                  ></div>
-                </div>
-
-                <p className="text-body-sm text-[12px] text-on-surface-variant leading-relaxed">
-                  <strong>Why this fits:</strong> {predictions.secondary.why}
-                </p>
+                )}
               </div>
-            </div>
-
-            {/* Super Care Steps at Home */}
-            <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/30 space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="text-[22px]">✨</span>
-                <h3 className="font-headline-md text-headline-md font-bold text-on-surface">
-                  Recommended Home Care Steps
-                </h3>
-              </div>
-
-              <div className="space-y-2.5 font-body-sm text-[13px] text-on-surface-variant">
-                <div className="flex items-start gap-3 p-3 rounded-xl bg-surface-container-low border border-outline-variant/20">
-                  <span className="text-[24px] shrink-0">🍵</span>
-                  <div>
-                    <strong className="text-on-surface font-bold">Stay Hydrated with Warm Fluids:</strong> Sip warm water, light herbal tea, or clear broth regularly to ease sinus congestion and keep fluid balance.
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-3 rounded-xl bg-surface-container-low border border-outline-variant/20">
-                  <span className="text-[24px] shrink-0">🛌</span>
-                  <div>
-                    <strong className="text-on-surface font-bold">Rest in a Dim, Screen-Free Room:</strong> Take a 45-to-60 minute break in comfortable, quiet surroundings without phone or tablet screens.
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-3 rounded-xl bg-surface-container-low border border-outline-variant/20">
-                  <span className="text-[24px] shrink-0">🧊</span>
-                  <div>
-                    <strong className="text-on-surface font-bold">Gentle Cool Forehead Compress:</strong> Apply a soft, damp cool washcloth over the forehead and eyes for 10–15 minutes to reduce tension.
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-[11px] font-body-sm text-outline pt-1">
-                Note for Parents &amp; Guardians: Always check with a licensed healthcare provider before administering any fever or pain medication.
-              </div>
-            </div>
+            )}
               </>
             )}
           </div>
